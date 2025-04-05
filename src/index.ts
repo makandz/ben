@@ -14,8 +14,25 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageTyping,
   ],
 });
+
+const channelHistory: {
+  author: User;
+  content: string;
+}[] = [];
+
+/**
+ * Adds a message to the channel history. Maintains a maximum length of 20 messages.
+ * @param message - The message to add to the history.
+ */
+const addToChannelHistory = (message: { author: User; content: string }) => {
+  channelHistory.push(message);
+  if (channelHistory.length > 20) {
+    channelHistory.shift();
+  }
+};
 
 const WPM = 130;
 const calculateTypingSpeed = (message: string): number => {
@@ -24,12 +41,42 @@ const calculateTypingSpeed = (message: string): number => {
   return Math.min(Math.max(1500, delay), 4000);
 };
 
+let processMessageArgs: {
+  prompt: string;
+  channel: TextChannel;
+} | null = null;
+
+let lastPing: number | null = null;
+let waitingTimeout: NodeJS.Timeout | null = null;
 let conversationTimeout: NodeJS.Timeout | null = null;
 let typingMessage: string | null = null;
 const messageQueue: {
   content: string;
   channel: TextChannel;
 }[] = [];
+
+const processMessage = async () => {
+  if (!processMessageArgs) {
+    return;
+  }
+
+  const { prompt, channel } = processMessageArgs;
+  console.log(prompt);
+
+  const response = await queryGemini(prompt, "conversation");
+
+  response.split("\n\n").forEach((part) => {
+    messageQueue.push({
+      content: part.replaceAll(/\n/g, " "),
+      channel: channel,
+    });
+  });
+
+  // Clear the processMessageArgs
+  processMessageArgs = null;
+
+  processQueue();
+};
 
 const processQueue = () => {
   typingMessage = null;
@@ -53,6 +100,13 @@ const processQueue = () => {
   // Simulate typing
   conversationTimeout = setTimeout(async () => {
     typingMessage = message.content;
+
+    // Adds the bot's own message to the channel history
+    addToChannelHistory({
+      author: client.user!,
+      content: message.content,
+    });
+
     await message.channel.send(message.content);
 
     // Process the next message in the queue
@@ -89,12 +143,32 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
+  // Clear all timers, we starting again here.
+  if (waitingTimeout) {
+    clearTimeout(waitingTimeout);
+    waitingTimeout = null;
+  }
+
+  if (conversationTimeout) {
+    clearTimeout(conversationTimeout);
+    conversationTimeout = null;
+  }
+
+  addToChannelHistory({
+    author: message.author,
+    content: message.content,
+  });
+
   const isMentioned = message.mentions.has(client.user.id);
-  if (!isMentioned) {
-    console.log("Not mentioned, ignoring message: ", message.content);
+  if (!isMentioned && (!lastPing || lastPing <= new Date().getTime() - 60000)) {
+    console.log(
+      "Not mentioned and last ping was longer than a minute, ignoring message: ",
+      message.content
+    );
     return;
   }
 
+  lastPing = new Date().getTime();
   let content = message.content
     .replace(new RegExp(`<@!?${client?.user?.id}>`, "g"), "")
     .trim();
@@ -104,45 +178,49 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
+  // debug
+  if (content === "debug") {
+    if (typingMessage) {
+      message.channel.send(`Typing message: ${typingMessage}`);
+    }
+    return;
+  }
+
   let prompt: string = `Users:\n`;
   const usersInConversation: Set<User> = new Set([message.author]);
 
-  const messageHistory = await message.channel.messages.fetch({
-    limit: 20,
-    before: message.id,
-  });
-
-  messageHistory.forEach((msg) => {
+  channelHistory.forEach((msg) => {
     if (msg.author.id !== client.user?.id) {
       usersInConversation.add(msg.author);
     }
   });
 
-  prompt += `Ben (You are Ben)\n`;
-  usersInConversation.forEach((user) => {
-    prompt += `${user.username} (id: ${user.id})\n`;
-  });
+  prompt += `You are Ben with the ID: ${client.user.id}.\n`;
 
   prompt += `\nConversation:\n`;
-  messageHistory.forEach((msg) => {
-    prompt += `${msg.author.username}: ${msg.content.replaceAll(/\n/g, " ")}\n`;
+  channelHistory.forEach((msg) => {
+    prompt += `${msg.author.id}: ${msg.content}\n`;
   });
 
-  // TODO: add the current user to the list of unique users
-  prompt += `${message.author.username}: ${content}\n\n`;
+  processMessageArgs = {
+    prompt: prompt + `${message.author.id}: ${content}\n`,
+    channel: message.channel,
+  };
 
-  console.log("Prompt: ", prompt);
+  waitingTimeout = setTimeout(processMessage, 4000);
+});
 
-  const response = await queryGemini(prompt, "conversation");
+client.on("typingStart", (typing) => {
+  if (typing.user.id === client.user?.id || !processMessageArgs) {
+    return;
+  }
 
-  response.split("\n\n").forEach((part) => {
-    messageQueue.push({
-      content: part.replaceAll(/\n/g, " "),
-      channel: message.channel as TextChannel,
-    });
-  });
+  if (waitingTimeout) {
+    clearTimeout(waitingTimeout);
+    waitingTimeout = null;
+  }
 
-  processQueue();
+  waitingTimeout = setTimeout(processMessage, 10000);
 });
 
 client.login(BOT_TOKEN);
