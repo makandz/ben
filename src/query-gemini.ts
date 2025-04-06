@@ -3,7 +3,7 @@ import { GOOGLE_API_KEY } from "./config.js";
 import { promptLoader } from "./prompt-loader.js";
 import { tryCatch } from "./utils/trycatch.js";
 
-type SupportedPromptKeys = "conversation";
+type SupportedPromptKeys = "conversation" | "think-should-respond";
 
 const prompts = await promptLoader();
 

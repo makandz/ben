@@ -9,6 +9,8 @@ import { BOT_TOKEN, TARGET_CHANNEL_ID } from "./config.js";
 import { queryGemini } from "./query-gemini.js";
 import { isTextChannel } from "./utils/is-text-channel.js";
 
+const DEBUG = true;
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -46,7 +48,8 @@ let processMessageArgs: {
   channel: TextChannel;
 } | null = null;
 
-let lastPing: number | null = null;
+let lastInvolved: number | null = null;
+let ignoreCount = 0; // TODO:
 let waitingTimeout: NodeJS.Timeout | null = null;
 let conversationTimeout: NodeJS.Timeout | null = null;
 let typingMessage: string | null = null;
@@ -61,20 +64,38 @@ const processMessage = async () => {
   }
 
   const { prompt, channel } = processMessageArgs;
+  // console.log(prompt)
+
   console.log(prompt);
+  const shouldRespond = await queryGemini(prompt, "think-should-respond");
+  if (DEBUG) {
+    await channel.send(`> thinking.. should I respond? ${shouldRespond}`);
+  }
+
+  console.log("Should respond:", shouldRespond);
+
+  if (shouldRespond.trim() !== "YES") {
+    console.log("Not responding to the message.");
+    processMessageArgs = null;
+    return;
+  }
 
   const response = await queryGemini(prompt, "conversation");
 
   response.split("\n\n").forEach((part) => {
+    const partParsed = part.replaceAll(/\n/g, " ").trim();
+    if (!partParsed || partParsed === "N/A") {
+      return;
+    }
+
     messageQueue.push({
-      content: part.replaceAll(/\n/g, " "),
+      content: partParsed,
       channel: channel,
     });
   });
 
-  // Clear the processMessageArgs
+  // Clear the processMessageArgs before processing the queue
   processMessageArgs = null;
-
   processQueue();
 };
 
@@ -107,6 +128,7 @@ const processQueue = () => {
       content: message.content,
     });
 
+    lastInvolved = new Date().getTime();
     await message.channel.send(message.content);
 
     // Process the next message in the queue
@@ -127,7 +149,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   console.log(`Logged in as ${readyClient.user.tag}`);
-  await channel.send("hello world!");
+  await channel.send(`hello world! (debug: ${DEBUG.toString()})`);
 });
 
 /**
@@ -160,7 +182,10 @@ client.on(Events.MessageCreate, async (message) => {
   });
 
   const isMentioned = message.mentions.has(client.user.id);
-  if (!isMentioned && (!lastPing || lastPing <= new Date().getTime() - 60000)) {
+  if (
+    !isMentioned &&
+    (!lastInvolved || lastInvolved <= new Date().getTime() - 60000)
+  ) {
     console.log(
       "Not mentioned and last ping was longer than a minute, ignoring message: ",
       message.content
@@ -168,7 +193,10 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  lastPing = new Date().getTime();
+  if (isMentioned) {
+    lastInvolved = new Date().getTime();
+  }
+
   let content = message.content
     .replace(new RegExp(`<@!?${client?.user?.id}>`, "g"), "")
     .trim();
@@ -186,8 +214,8 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  let prompt: string = `Users:\n`;
-  const usersInConversation: Set<User> = new Set([message.author]);
+  let prompt: string = ``;
+  const usersInConversation: Set<User> = new Set([client.user, message.author]);
 
   channelHistory.forEach((msg) => {
     if (msg.author.id !== client.user?.id) {
@@ -195,19 +223,27 @@ client.on(Events.MessageCreate, async (message) => {
     }
   });
 
-  prompt += `You are Ben with the ID: ${client.user.id}.\n`;
+  prompt += `You are Ben with the ID: ${client.user.id}.\n\n`;
+  prompt += `Conversation:\n`;
 
-  prompt += `\nConversation:\n`;
   channelHistory.forEach((msg) => {
-    prompt += `${msg.author.id}: ${msg.content}\n`;
+    let content = msg.content;
+    usersInConversation.forEach((user) => {
+      content = content.replaceAll(
+        `<@${user.id}>`,
+        `@${user.username} (id: ${user.id})`
+      );
+    });
+
+    prompt += `${msg.author.username} (id: ${msg.author.id}): ${content}\n`;
   });
 
   processMessageArgs = {
-    prompt: prompt + `${message.author.id}: ${content}\n`,
+    prompt,
     channel: message.channel,
   };
 
-  waitingTimeout = setTimeout(processMessage, 4000);
+  waitingTimeout = setTimeout(processMessage, 3000);
 });
 
 client.on("typingStart", (typing) => {
