@@ -9,6 +9,26 @@ const prompts = await promptLoader();
 
 const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
 const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const embeddingModel = genAI.getGenerativeModel({
+  model: "gemini-embedding-exp-03-07",
+});
+
+/**
+ * Get embeddings for a text using Gemini's embedding model
+ * @param text The text to get embeddings for
+ */
+export async function getEmbedding(text: string): Promise<number[]> {
+  const { data: result, error } = await tryCatch(
+    embeddingModel.embedContent(text)
+  );
+
+  if (error) {
+    console.error("Error getting embedding from Gemini:", error);
+    throw error;
+  }
+
+  return result.embedding.values;
+}
 
 /**
  * Requests a response from the Gemini model using the provided prompt.
