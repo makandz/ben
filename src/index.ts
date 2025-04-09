@@ -6,7 +6,8 @@ import {
   User,
 } from "discord.js";
 import { BOT_TOKEN, TARGET_CHANNEL_ID } from "./config.js";
-import { queryGemini } from "./query-gemini.js";
+import { memoryStore } from "./memory.js";
+import { getEmbedding, queryGemini } from "./query-gemini.js";
 import { isTextChannel } from "./utils/is-text-channel.js";
 
 const DEBUG = true;
@@ -206,36 +207,47 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  // debug
-  if (content === "debug") {
-    if (typingMessage) {
-      message.channel.send(`Typing message: ${typingMessage}`);
+  // Handle memory commands
+  if (content.startsWith("remember: ")) {
+    const memoryContent = content.substring("remember: ".length).trim();
+    try {
+      const embedding = await getEmbedding(memoryContent);
+      memoryStore.add(Date.now().toString(), embedding, memoryContent, {
+        author: message.author.id,
+        timestamp: Date.now(),
+      });
+      await message.channel.send("got it, i'll remember that");
+    } catch (error) {
+      console.error("Error storing memory:", error);
+      await message.channel.send("sorry, couldn't store that in my memory");
     }
     return;
   }
 
-  let prompt: string = ``;
-  const usersInConversation: Set<User> = new Set([client.user, message.author]);
+  if (content.startsWith("query: ")) {
+    const queryContent = content.substring("query: ".length).trim();
+    try {
+      const queryEmbedding = await getEmbedding(queryContent);
+      const results = memoryStore.query(queryEmbedding, 1);
 
-  channelHistory.forEach((msg) => {
-    if (msg.author.id !== client.user?.id) {
-      usersInConversation.add(msg.author);
+      if (results.length > 0 && results[0].score > 0.7) {
+        await message.channel.send(`this reminds me of: ${results[0].content}`);
+      } else {
+        await message.channel.send(
+          "hmm, nothing quite like that comes to mind"
+        );
+      }
+    } catch (error) {
+      console.error("Error querying memory:", error);
+      await message.channel.send("sorry, had trouble searching my memories");
     }
-  });
+    return;
+  }
 
-  prompt += `You are Ben with the ID: ${client.user.id}.\n\n`;
-  prompt += `Conversation:\n`;
+  let prompt: string = `Conversation:\n`;
 
   channelHistory.forEach((msg) => {
-    let content = msg.content;
-    usersInConversation.forEach((user) => {
-      content = content.replaceAll(
-        `<@${user.id}>`,
-        `@${user.username} (id: ${user.id})`
-      );
-    });
-
-    prompt += `${msg.author.username} (id: ${msg.author.id}): ${content}\n`;
+    prompt += `${msg.author.username}: ${msg.content}\n`;
   });
 
   processMessageArgs = {
