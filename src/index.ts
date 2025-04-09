@@ -2,6 +2,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Guild,
   TextChannel,
   User,
 } from "discord.js";
@@ -10,7 +11,58 @@ import { memoryStore } from "./memory.js";
 import { getEmbedding, queryGemini } from "./query-gemini.js";
 import { isTextChannel } from "./utils/is-text-channel.js";
 
-const DEBUG = true;
+const DEBUG = false;
+
+/**
+ * Converts any @username mentions in a message to proper Discord mentions.
+ * Uses Discord.js's built-in cache for guild members.
+ */
+const convertUsernamesToMentions = async (
+  guild: Guild,
+  content: string
+): Promise<string> => {
+  const mentionRegex = /@(\w+)/g;
+  const matches = content.match(mentionRegex);
+  if (!matches) return content;
+
+  let result = content;
+  for (const match of matches) {
+    const username = match.substring(1); // Remove @ symbol
+
+    // Look up the member from the built-in cache first
+    let member = guild.members.cache.find(
+      (m) => m.user.username.toLowerCase() === username.toLowerCase()
+    );
+
+    // Fall back to API fetch if not found in the cache
+    if (!member) {
+      const fetchedMembers = await guild.members.fetch({
+        query: username,
+        limit: 1,
+      });
+      member = fetchedMembers.first();
+    }
+
+    if (member) {
+      result = result.replace(
+        new RegExp(`@${username}\\b`, "g"),
+        `<@${member.id}>`
+      );
+    }
+  }
+
+  return result;
+};
+
+/**
+ * Converts Discord mention format (<@userId>) to @username format
+ */
+const convertMentionsToUsernames = (content: string, message: any): string => {
+  return content.replace(/<@!?(\d+)>/g, (match, userId) => {
+    const user = message.mentions.users.get(userId);
+    return user ? `@${user.username}` : match;
+  });
+};
 
 const client = new Client({
   intents: [
@@ -18,6 +70,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageTyping,
+    GatewayIntentBits.GuildMembers,
   ],
 });
 
@@ -75,7 +128,7 @@ const processMessage = async () => {
 
   console.log("Should respond:", shouldRespond);
 
-  if (shouldRespond.trim() !== "YES") {
+  if (!shouldRespond || !shouldRespond.includes("YES")) {
     console.log("Not responding to the message.");
     processMessageArgs = null;
     return;
@@ -123,14 +176,20 @@ const processQueue = () => {
   conversationTimeout = setTimeout(async () => {
     typingMessage = message.content;
 
+    // Convert any @username mentions to proper Discord mentions
+    const convertedContent = await convertUsernamesToMentions(
+      message.channel.guild,
+      message.content
+    );
+
     // Adds the bot's own message to the channel history
     addToChannelHistory({
       author: client.user!,
-      content: message.content,
+      content: message.content, // Store original content in history
     });
 
     lastInvolved = new Date().getTime();
-    await message.channel.send(message.content);
+    await message.channel.send(convertedContent);
 
     // Process the next message in the queue
     processQueue();
@@ -177,9 +236,11 @@ client.on(Events.MessageCreate, async (message) => {
     conversationTimeout = null;
   }
 
+  // Convert mentions to usernames before adding to history
+  const convertedContent = convertMentionsToUsernames(message.content, message);
   addToChannelHistory({
     author: message.author,
-    content: message.content,
+    content: convertedContent,
   });
 
   const isMentioned = message.mentions.has(client.user.id);
@@ -268,7 +329,7 @@ client.on("typingStart", (typing) => {
     waitingTimeout = null;
   }
 
-  waitingTimeout = setTimeout(processMessage, 10000);
+  waitingTimeout = setTimeout(processMessage, 3000);
 });
 
 client.login(BOT_TOKEN);
