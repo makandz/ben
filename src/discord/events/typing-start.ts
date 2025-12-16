@@ -7,17 +7,21 @@ import {
   clearWaitingTimeout,
   setWaitingTimeout,
 } from "../../conversation/timeouts.js";
+import { clearConversationTimeout } from "../../conversation/queue.js";
 
 const registerTypingStart = (client: Client) => {
   client.on("typingStart", (typing) => {
-    if (typing.user.id === client.user?.id || !getProcessMessageArgs()) {
+    if (typing.user.id === client.user?.id) {
       return;
     }
 
-    if (clearWaitingTimeout) {
-      clearWaitingTimeout();
+    clearConversationTimeout();
+
+    if (!getProcessMessageArgs()) {
+      return;
     }
 
+    clearWaitingTimeout();
     setWaitingTimeout(setTimeout(processMessage, 3000));
   });
 };
