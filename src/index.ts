@@ -1,3 +1,4 @@
+import { Type } from "@google/genai";
 import {
   Client,
   Events,
@@ -11,7 +12,7 @@ import { memoryStore } from "./memory.js";
 import { getEmbedding, queryGemini } from "./query-gemini.js";
 import { isTextChannel } from "./utils/is-text-channel.js";
 
-const DEBUG = false;
+const DEBUG = true;
 
 /**
  * Converts any @username mentions in a message to proper Discord mentions.
@@ -118,17 +119,47 @@ const processMessage = async () => {
   }
 
   const { prompt, channel } = processMessageArgs;
-  // console.log(prompt)
 
-  console.log(prompt);
-  const shouldRespond = await queryGemini(prompt, "think-should-respond");
-  if (DEBUG) {
-    await channel.send(`> thinking.. should I respond? ${shouldRespond}`);
+  const thinkingRaw = await queryGemini(
+    prompt,
+    "think-should-respond",
+    {
+      type: Type.OBJECT,
+      properties: {
+        shouldRespond: {
+          type: Type.BOOLEAN,
+        },
+        thinking: {
+          type: Type.STRING,
+        },
+      },
+      required: ["thinking", "shouldRespond"],
+    },
+    100
+  );
+
+  let shouldRespond: {
+    shouldRespond: boolean;
+    thinking: string;
+  } | null = null;
+  try {
+    shouldRespond = JSON.parse(thinkingRaw);
+  } catch (error) {
+    console.error("Error parsing JSON response:", error);
   }
 
-  console.log("Should respond:", shouldRespond);
+  if (!shouldRespond) {
+    channel.send("my brain has shut down, please try again in a moment");
+    return;
+  }
 
-  if (!shouldRespond || !shouldRespond.includes("YES")) {
+  if (DEBUG) {
+    await channel.send(`> 🤔 ${shouldRespond.thinking}`);
+  }
+
+  // console.log("Should respond:", shouldRespond);
+
+  if (!shouldRespond || !shouldRespond.shouldRespond) {
     console.log("Not responding to the message.");
     processMessageArgs = null;
     return;

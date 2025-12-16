@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, Schema } from "@google/genai";
 import { GOOGLE_API_KEY } from "./config.js";
 import { promptLoader } from "./prompt-loader.js";
 import { tryCatch } from "./utils/trycatch.js";
@@ -6,20 +6,18 @@ import { tryCatch } from "./utils/trycatch.js";
 type SupportedPromptKeys = "conversation" | "think-should-respond";
 
 const prompts = await promptLoader();
-
-const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
-const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-const embeddingModel = genAI.getGenerativeModel({
-  model: "gemini-embedding-exp-03-07",
-});
+const googleGenAI = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
 
 /**
  * Get embeddings for a text using Gemini's embedding model
  * @param text The text to get embeddings for
  */
 export async function getEmbedding(text: string): Promise<number[]> {
-  const { data: result, error } = await tryCatch(
-    embeddingModel.embedContent(text)
+  const { data, error } = await tryCatch(
+    googleGenAI.models.embedContent({
+      model: "gemini-embedding-exp-03-07",
+      contents: [{ text }], // this supports multiple
+    })
   );
 
   if (error) {
@@ -27,7 +25,12 @@ export async function getEmbedding(text: string): Promise<number[]> {
     throw error;
   }
 
-  return result.embedding.values;
+  if (!data.embeddings || !data.embeddings[0].values) {
+    console.error("No embeddings found in the response.");
+    throw new Error("No embeddings found in the response.");
+  }
+
+  return data.embeddings[0].values;
 }
 
 /**
@@ -37,7 +40,9 @@ export async function getEmbedding(text: string): Promise<number[]> {
  */
 export async function queryGemini(
   prompt: string,
-  promptKey?: SupportedPromptKeys
+  promptKey?: SupportedPromptKeys,
+  schema?: Schema,
+  maxTokens?: number
 ): Promise<string> {
   if (promptKey && !prompts.has(promptKey)) {
     console.error(`Prompt key "${promptKey}" not found.`);
@@ -46,16 +51,30 @@ export async function queryGemini(
 
   const systemPrompt = promptKey ? prompts.get(promptKey) : "";
 
-  const chat = geminiModel.startChat({
-    history: [{ role: "user", parts: [{ text: "System: " + systemPrompt }] }],
-  });
-
-  const { data, error } = await tryCatch(chat.sendMessage(prompt));
+  const { data, error } = await tryCatch(
+    googleGenAI.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [{ role: "user", text: prompt }],
+      config: {
+        systemInstruction: systemPrompt,
+        maxOutputTokens: maxTokens || 500,
+        temperature: 1.35,
+        ...(schema
+          ? { responseMimeType: "application/json", responseSchema: schema }
+          : {}),
+      },
+    })
+  );
 
   if (error) {
     console.error("Error getting response from Gemini:", error);
     return "Something went wrong.";
   }
 
-  return data.response.text();
+  if (!data.text) {
+    console.error("No text found in the response.");
+    return "Something went wrong.";
+  }
+
+  return data.text;
 }
