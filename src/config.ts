@@ -1,12 +1,15 @@
-import { config } from "dotenv";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import "dotenv/config";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+export const config = {
+  discordToken: process.env.DISCORD_TOKEN,
+  channelId: process.env.CHANNEL_ID,
+  geminiApiKey: process.env.GEMINI_API_KEY,
+};
 
-config({ path: resolve(__dirname, "../.env") });
-
-export const BOT_TOKEN = process.env.BOT_TOKEN ?? "";
-export const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID ?? "";
-export const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
+// Validate required env vars at startup
+const required = ["DISCORD_TOKEN", "CHANNEL_ID", "GEMINI_API_KEY"] as const;
+for (const key of required) {
+  if (!process.env[key]) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+}
