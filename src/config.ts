@@ -1,12 +1,18 @@
-import { config } from "dotenv";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import "dotenv/config";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const getEnvVar = (name: string): string => {
+  const value = process.env[name];
 
-config({ path: resolve(__dirname, "../.env") });
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
 
-export const BOT_TOKEN = process.env.BOT_TOKEN ?? "";
-export const TARGET_CHANNEL_ID = process.env.TARGET_CHANNEL_ID ?? "";
-export const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
+  return value;
+};
+
+export const config = {
+  discordToken: getEnvVar("DISCORD_TOKEN"),
+  googleApiKey: getEnvVar("GOOGLE_API_KEY"),
+  maxHistorySize: parseInt(getEnvVar("MAX_HISTORY_SIZE"), 10),
+  debug: getEnvVar("DEBUG") === "true",
+};

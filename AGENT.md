@@ -1,0 +1,3 @@
+- Prefer arrow functions (`const foo = () => {}`) over `function` declarations.
+- Omit self-explanatory comments; only document complex logic or non-obvious "why" decisions.
+- Prefer type aliases over interface definitions for consistency and better support for unions/intersections.
