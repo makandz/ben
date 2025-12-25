@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 
-type HistoryMessage = {
+export type HistoryMessage = {
   username: string;
   content: string;
 };
