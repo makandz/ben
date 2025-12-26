@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { config } from "./config.js";
-import { generateReply } from "./gemini.js";
+import { generateReply } from "./llm/gemini.js";
 import { addMessage } from "./messageHistory.js";
 import { simulateTyping } from "./typing.js";
 import { isGuildTextChannel } from "./utils/discord.js";
@@ -51,13 +51,29 @@ const processAndReply = async (
 
   try {
     console.log(`💭 Generating reply for #${channel.name}`);
-    const messages = await generateReply(channel.name);
+    const { messages, tokenUsage, model } = await generateReply(channel.name);
 
     if (isInterrupted(operationId, "during generation")) {
       return;
     }
 
+    const {
+      current: { inputTokens: curIn, outputTokens: curOut },
+      total: { inputTokens: totIn, outputTokens: totOut },
+    } = tokenUsage;
+
+    console.log(
+      `📊 Tokens: ${curIn} in / ${curOut} out (total: ${totIn} in / ${totOut} out)`
+    );
+
+    if (config.debug) {
+      channel.send(
+        `> 📊 ${model}: ${curIn}/${curOut} (total: ${totIn}/${totOut})`
+      );
+    }
+
     console.log(`⏳ Sending ${messages.length} messages...`);
+
     for (const msg of messages) {
       await simulateTyping(channel, msg);
       if (isInterrupted(operationId, "during typing")) {
