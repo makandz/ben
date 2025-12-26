@@ -2,7 +2,6 @@ import {
   GenerateContentParameters,
   GenerateContentResponse,
   GoogleGenAI,
-  ThinkingLevel,
 } from "@google/genai";
 import dedent from "dedent";
 import { config } from "../config.js";
@@ -100,7 +99,8 @@ export const generateReply = async (
       systemInstruction: systemPrompt,
       maxOutputTokens: 100,
       thinkingConfig: {
-        thinkingLevel: ThinkingLevel.MINIMAL,
+        // thinkingLevel: ThinkingLevel.MINIMAL, // Gemini 3 only
+        thinkingBudget: 0, // Gemini 2 only
       },
     },
   });

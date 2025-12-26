@@ -1,9 +1,13 @@
 import { Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { config } from "./config.js";
 import { generateReply } from "./llm/gemini.js";
-import { addMessage } from "./messageHistory.js";
+import { addMessage, getHistory } from "./messageHistory.js";
 import { simulateTyping } from "./typing.js";
-import { isGuildTextChannel } from "./utils/discord.js";
+import {
+  isGuildTextChannel,
+  resolveMentionsToUsernames,
+  resolveUsernamesToMentions,
+} from "./utils/discord.js";
 
 const IDLE_DELAY = 7000;
 
@@ -67,8 +71,9 @@ const processAndReply = async (
     );
 
     if (config.debug) {
-      channel.send(
-        `> 📊 ${model}: ${curIn}/${curOut} (total: ${totIn}/${totOut})`
+      const historyLength = getHistory().length;
+      await channel.send(
+        `> 📊 ${model}: ${curIn}/${curOut} (total: ${totIn}/${totOut}), history: ${historyLength}`
       );
     }
 
@@ -81,7 +86,8 @@ const processAndReply = async (
       }
 
       console.log(`💬 Sending message: ${msg}`);
-      await channel.send(msg);
+      const resolvedMsg = await resolveUsernamesToMentions(msg, channel.guild!);
+      await channel.send(resolvedMsg);
       addMessage("Ben", msg);
 
       if (isInterrupted(operationId, "after sending")) {
@@ -133,7 +139,12 @@ client.on("messageCreate", async (message) => {
   console.log(
     `📔 Received message ${message.author.username}: ${message.content}`
   );
-  addMessage(message.author.username, message.content);
+
+  const resolvedContent = await resolveMentionsToUsernames(
+    message.content,
+    message.guild!
+  );
+  addMessage(message.author.username, resolvedContent);
 
   // Increment operation ID to interrupt any ongoing operation
   currentOperationId++;
