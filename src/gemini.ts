@@ -38,46 +38,36 @@ const buildConversationPrompt = (
 /**
  * Generate a reply for the given channel.
  * @param channel - The channel to generate a reply for.
- * @returns The generated reply.
+ * @returns An array of messages (split by newlines from the response).
  */
-export const generateReply = async (channel: string): Promise<string> => {
+export const generateReply = async (channel: string): Promise<string[]> => {
   const systemPrompt = await getPrompt("conversation");
   const history = getHistory();
   const userPrompt = buildConversationPrompt(channel, history);
 
-  if (config.debug) {
-    console.log(`[DEBUG] 🌍 Generating reply for #${channel}`);
-  }
-
   const response = await ai.models.generateContent({
-    model: "gemini-3.0-flash-preview",
+    model: "gemini-3-flash-preview",
     contents: userPrompt,
     config: {
       systemInstruction: systemPrompt,
       maxOutputTokens: 100,
       thinkingConfig: {
-        thinkingBudget: 50,
-        thinkingLevel: ThinkingLevel.LOW,
-        includeThoughts: true,
+        thinkingLevel: ThinkingLevel.MINIMAL,
       },
     },
   });
 
-  console.log("user prompt", userPrompt);
-
   if (!response.text) {
     console.error("[ERROR] No response from Gemini");
-    return "sorry, I'm having trouble thinking of a reply";
+    return ["sorry, I'm having trouble thinking of a reply"];
   }
 
-  if (config.debug) {
-    console.log(
-      "[DEBUG] 💬 Generated reply:",
-      response.text.length > 50
-        ? response.text.slice(0, 50) + "..."
-        : response.text
-    );
-  }
+  const messages = response.text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
-  return response.text;
+  return messages.length > 0
+    ? messages
+    : ["sorry, I'm having trouble thinking of a reply"];
 };

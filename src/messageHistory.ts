@@ -14,10 +14,6 @@ export const addMessage = (username: string, content: string): void => {
   while (history.length > config.maxHistorySize) {
     history.shift();
   }
-
-  if (config.debug) {
-    console.log(`[DEBUG] 📔 Added message from ${username}: ${content}`);
-  }
 };
 
 export const getHistory = (): HistoryMessage[] => {
