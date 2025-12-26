@@ -10,7 +10,7 @@ import { getHistory, type HistoryMessage } from "../messageHistory.js";
 import { getPrompt } from "../prompts.js";
 import { trackTokenUsage, type TokenTrackingResult } from "./tokens.js";
 
-const GEMINI_MODELS = ["gemini-3-flash-preview"] as const;
+const GEMINI_MODELS = ["gemini-2.5-flash"] as const;
 export type GeminiModel = (typeof GEMINI_MODELS)[number];
 
 const ai = new GoogleGenAI({ apiKey: config.googleApiKey });
@@ -87,7 +87,7 @@ const buildConversationPrompt = (
 export const generateReply = async (
   channel: string
 ): Promise<GenerateReplyResult> => {
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-2.5-flash";
 
   const systemPrompt = await getPrompt("conversation");
   const history = getHistory();

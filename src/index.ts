@@ -5,7 +5,7 @@ import { addMessage } from "./messageHistory.js";
 import { simulateTyping } from "./typing.js";
 import { isGuildTextChannel } from "./utils/discord.js";
 
-const IDLE_DELAY = 5000;
+const IDLE_DELAY = 7000;
 
 const client = new Client({
   intents: [
@@ -155,7 +155,8 @@ client.on("typingStart", (typing) => {
     !channel ||
     channel.id !== config.targetChannelId ||
     !isGuildTextChannel(channel) ||
-    isProcessing
+    isProcessing ||
+    !idleTimer
   ) {
     return;
   }
