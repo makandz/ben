@@ -10,6 +10,7 @@ import {
 } from "./utils/discord.js";
 
 const IDLE_DELAY = 7000;
+const INTERACTION_COOLDOWN = 120_000; // 120 seconds in ms
 
 const client = new Client({
   intents: [
@@ -24,6 +25,25 @@ const client = new Client({
 let idleTimer: NodeJS.Timeout | undefined;
 let currentOperationId = 0;
 let isProcessing = false; // Ignore typing events while processing
+let lastInteractionTime = 0;
+
+/**
+ * Check if Ben was mentioned in the message.
+ * @param resolvedContent - The message content with mentions resolved to usernames.
+ * @returns True if Ben was mentioned, false otherwise.
+ */
+const isBotMentioned = (resolvedContent: string): boolean => {
+  // tbh could have used the built in isMentioned method but this is simpler
+  return resolvedContent.includes("@Ben");
+};
+
+/**
+ * Check if we are within the interaction cooldown window.
+ * @returns True if within cooldown, false otherwise.
+ */
+const isWithinInteractionWindow = (): boolean => {
+  return Date.now() - lastInteractionTime < INTERACTION_COOLDOWN;
+};
 
 /**
  * Check if the current operation has been interrupted.
@@ -88,6 +108,7 @@ const processAndReply = async (
       console.log(`💬 Sending message: ${msg}`);
       const resolvedMsg = await resolveUsernamesToMentions(msg, channel.guild!);
       await channel.send(resolvedMsg);
+      lastInteractionTime = Date.now();
       addMessage("Ben", msg);
 
       if (isInterrupted(operationId, "after sending")) {
@@ -122,6 +143,8 @@ const scheduleIdleReply = (channel: TextChannel) => {
 
 /**
  * Handle a message create event.
+ * Always adds messages to history, but only schedules replies when Ben is
+ * mentioned or within the interaction cooldown window.
  * Messages can interrupt Ben at any time (idle, generating, or typing).
  * @param message - The message that was created.
  */
@@ -136,21 +159,30 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  console.log(
-    `📔 Received message ${message.author.username}: ${message.content}`
-  );
-
   const resolvedContent = await resolveMentionsToUsernames(
     message.content,
     message.guild!
   );
+
+  console.log(
+    `📔 Received message ${message.author.username}: ${resolvedContent}`
+  );
+
+  // Always add to history
   addMessage(message.author.username, resolvedContent);
 
-  // Increment operation ID to interrupt any ongoing operation
-  currentOperationId++;
-  isProcessing = false;
+  // Only enter scheduling mode if pinged OR within cooldown
+  const shouldSchedule =
+    isBotMentioned(resolvedContent) || isWithinInteractionWindow();
 
-  scheduleIdleReply(channel);
+  if (shouldSchedule) {
+    // Increment operation ID to interrupt any ongoing operation
+    currentOperationId++;
+    lastInteractionTime = Date.now();
+    isProcessing = false;
+
+    scheduleIdleReply(channel);
+  }
 });
 
 /**
