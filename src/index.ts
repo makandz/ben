@@ -7,7 +7,12 @@ const token = process.env.DISCORD_TOKEN;
 const targetChannelId = process.env.DISCORD_TARGET_CHANNEL_ID;
 const queueSizeRaw = process.env.DISCORD_MESSAGE_QUEUE_SIZE;
 const openAiApiKey = process.env.OPENAI_API_KEY;
-const tokenReportPrefix = "> 🤖 ";
+const openAiModel = "gpt-5-mini";
+const openAiMaxOutputTokens = 128;
+const tokenReportPrefix = "> 📊 ";
+const responseLineDelayMs = 450;
+const discordUserMentionPattern = /<@!?(\d+)>/g;
+const usernameMentionPattern = /(^|[^\w@])@([a-zA-Z0-9_.]{2,32})\b/g;
 
 type TrackedMessage = {
   userName: string;
@@ -16,8 +21,51 @@ type TrackedMessage = {
 };
 
 const messageQueue: TrackedMessage[] = [];
+const userIdsByUsername = new Map<string, string>();
 let runningInputTokens = 0;
 let runningOutputTokens = 0;
+
+function normalizeUsername(userName: string): string {
+  return userName.toLowerCase();
+}
+
+function trackUser(userId: string, userName: string): void {
+  userIdsByUsername.set(normalizeUsername(userName), userId);
+}
+
+function convertMentionsToUsernames(content: string): string {
+  return content.replace(discordUserMentionPattern, (fullMatch, userId: string) => {
+    const cachedUser = client.users.cache.get(userId);
+
+    if (!cachedUser) {
+      return fullMatch;
+    }
+
+    trackUser(cachedUser.id, cachedUser.username);
+    return `@${cachedUser.username}`;
+  });
+}
+
+function convertUsernamesToMentions(content: string): string {
+  return content.replace(
+    usernameMentionPattern,
+    (fullMatch, prefix: string, userName: string) => {
+      const userId = userIdsByUsername.get(normalizeUsername(userName));
+
+      if (!userId) {
+        return fullMatch;
+      }
+
+      return `${prefix}<@${userId}>`;
+    },
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 if (!token) {
   throw new Error("Missing DISCORD_TOKEN in environment");
@@ -55,7 +103,7 @@ function formatTokenReport(
   runningInput: number,
   runningOutput: number,
 ): string {
-  return `${tokenReportPrefix}msg in:${inputTokens.toLocaleString()} out:${outputTokens.toLocaleString()} | session in:${runningInput.toLocaleString()} out:${runningOutput.toLocaleString()}`;
+  return `${tokenReportPrefix}${openAiModel}: ${inputTokens}/${outputTokens} (total: ${runningInput}/${runningOutput})`;
 }
 
 const client = new Client({
@@ -96,17 +144,23 @@ client.on(Events.MessageCreate, async (message) => {
       ? "ben"
       : message.author.username;
 
+  trackUser(message.author.id, message.author.username);
+
+  for (const mentionedUser of message.mentions.users.values()) {
+    trackUser(mentionedUser.id, mentionedUser.username);
+  }
+
+  const trackedContent = convertMentionsToUsernames(message.content);
+
   messageQueue.push({
     userName,
-    content: message.content,
+    content: trackedContent,
     createdAt: message.createdAt.toISOString(),
   });
 
   while (messageQueue.length > queueSize) {
     messageQueue.shift();
   }
-
-  console.log("Tracked messages:", JSON.stringify(messageQueue, null, 2));
 
   if (message.author.bot) {
     return;
@@ -125,9 +179,12 @@ client.on(Events.MessageCreate, async (message) => {
     const systemPrompt = await loadPrompt("message.txt");
     const messageLog = formatMessageLog(messageQueue);
 
+    console.log("OpenAI input:\n", messageLog);
+
     const response = await openai.responses.create({
-      model: "gpt-5-mini",
+      model: openAiModel,
       reasoning: { effort: "minimal" },
+      max_output_tokens: openAiMaxOutputTokens,
       instructions: systemPrompt,
       input: messageLog,
     });
@@ -161,8 +218,13 @@ client.on(Events.MessageCreate, async (message) => {
       .split(/\r?\n/)
       .filter((line) => line.trim().length > 0);
 
-    for (const line of responseLines) {
-      await message.channel.send(line);
+    for (const [index, line] of responseLines.entries()) {
+      if (index > 0) {
+        await sleep(responseLineDelayMs);
+      }
+
+      const discordReadyLine = convertUsernamesToMentions(line);
+      await message.channel.send(discordReadyLine);
     }
   } catch (error) {
     console.error("Failed to generate OpenAI response:", error);
