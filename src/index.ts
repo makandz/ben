@@ -6,14 +6,14 @@ import OpenAI from "openai";
 import { loadPrompt } from "./prompts/load-prompt.js";
 
 const token = process.env.DISCORD_TOKEN;
-const targetChannelId = process.env.DISCORD_TARGET_CHANNEL_ID;
 const openAiApiKey = process.env.OPENAI_API_KEY;
+const usageLogChannelId = process.env.DISCORD_USAGE_LOG_CHANNEL_ID;
 const openAiModel = "gpt-5.1";
 const openAiMaxOutputTokens = 128;
 const queueSize = 30;
 const messageQueueTtlMs = 30 * 60 * 1000;
 const usageStatePath = path.resolve(process.cwd(), "usage-state.json");
-const dailySpendLimitUsd = 1;
+const dailySpendLimitUsd = 0.5;
 const inputTokenPricePerMillionUsd = 1.25;
 const cachedInputTokenPricePerMillionUsd = 0.125;
 const outputTokenPricePerMillionUsd = 10;
@@ -21,6 +21,8 @@ const dailyResetCheckIntervalMs = 5 * 60 * 1000;
 const typingIndicatorTtlMs = 12 * 1000;
 const typingRecheckDelayMs = 1000;
 const listeningInactivityTimeoutMs = 10 * 60 * 1000;
+const usageCapReachedMessage =
+  "sorry I hit my usage cap :( I'll be back tomorrow!";
 const tokenReportPrefix = "> 📊 ";
 const responseDebounceDelayMs = 10000;
 const responseLineDelayMs = 1500;
@@ -44,9 +46,9 @@ type UsageState = {
   lastSavedAt: string;
 };
 
-const messageQueue: TrackedMessage[] = [];
+const messageQueuesByChannelId = new Map<string, TrackedMessage[]>();
 const userIdsByUsername = new Map<string, string>();
-const typingActivityByUserId = new Map<string, number>();
+const typingActivityByChannelAndUser = new Map<string, number>();
 let runningInputTokens = 0;
 let runningOutputTokens = 0;
 let runningCachedInputTokens = 0;
@@ -60,6 +62,7 @@ let responseInProgress = false;
 let pendingResponse = false;
 let isShuttingDown = false;
 let conversationMode: "sleeping" | "listening" = "sleeping";
+let activeListeningChannelId: string | undefined;
 
 function normalizeUsername(userName: string): string {
   return userName.toLowerCase();
@@ -266,7 +269,20 @@ function stopDailyResetMonitor(): void {
   dailyResetInterval = undefined;
 }
 
-function pruneExpiredMessages(nowMs: number): void {
+function getOrCreateMessageQueue(channelId: string): TrackedMessage[] {
+  const existingQueue = messageQueuesByChannelId.get(channelId);
+
+  if (existingQueue) {
+    return existingQueue;
+  }
+
+  const newQueue: TrackedMessage[] = [];
+  messageQueuesByChannelId.set(channelId, newQueue);
+  return newQueue;
+}
+
+function pruneExpiredMessages(channelId: string, nowMs: number): void {
+  const messageQueue = getOrCreateMessageQueue(channelId);
   const cutoffMs = nowMs - messageQueueTtlMs;
 
   for (let index = messageQueue.length - 1; index >= 0; index -= 1) {
@@ -276,11 +292,15 @@ function pruneExpiredMessages(nowMs: number): void {
       messageQueue.splice(index, 1);
     }
   }
+
+  if (messageQueue.length === 0) {
+    messageQueuesByChannelId.delete(channelId);
+  }
 }
 
-function getMessageQueueForResponse(): TrackedMessage[] {
-  pruneExpiredMessages(Date.now());
-  return messageQueue;
+function getMessageQueueForResponse(channelId: string): TrackedMessage[] {
+  pruneExpiredMessages(channelId, Date.now());
+  return getOrCreateMessageQueue(channelId);
 }
 
 function clearListeningInactivityTimeout(): void {
@@ -293,9 +313,11 @@ function clearListeningInactivityTimeout(): void {
 }
 
 function setSleepMode(reason: string): void {
+  const previousChannelId = activeListeningChannelId;
   const didChangeMode = conversationMode !== "sleeping";
 
   conversationMode = "sleeping";
+  activeListeningChannelId = undefined;
   pendingResponse = false;
 
   if (responseDebounceTimeout) {
@@ -304,10 +326,21 @@ function setSleepMode(reason: string): void {
   }
 
   clearListeningInactivityTimeout();
+
+  if (previousChannelId) {
+    for (const key of typingActivityByChannelAndUser.keys()) {
+      if (key.startsWith(`${previousChannelId}:`)) {
+        typingActivityByChannelAndUser.delete(key);
+      }
+    }
+  }
+
   updatePresenceForMode();
 
   if (didChangeMode) {
-    console.log(`[mode] sleeping (${reason})`);
+    console.log(
+      `[mode] sleeping (${reason}${previousChannelId ? `, channel ${previousChannelId}` : ""})`,
+    );
   }
 }
 
@@ -322,15 +355,17 @@ function refreshListeningInactivityTimeout(): void {
   }, listeningInactivityTimeoutMs);
 }
 
-function setListeningMode(reason: string): void {
-  const didChangeMode = conversationMode !== "listening";
+function setListeningMode(reason: string, channelId: string): void {
+  const didChangeMode =
+    conversationMode !== "listening" || activeListeningChannelId !== channelId;
 
   conversationMode = "listening";
+  activeListeningChannelId = channelId;
   refreshListeningInactivityTimeout();
   updatePresenceForMode();
 
   if (didChangeMode) {
-    console.log(`[mode] awake (${reason})`);
+    console.log(`[mode] awake (${reason}, channel ${channelId})`);
   }
 }
 
@@ -364,19 +399,35 @@ function isPingingBen(message: {
   return message.mentions.users.has(client.user.id);
 }
 
-function pruneInactiveTyping(nowMs: number): void {
-  for (const [userId, typedAtMs] of typingActivityByUserId) {
+function getTypingActivityKey(channelId: string, userId: string): string {
+  return `${channelId}:${userId}`;
+}
+
+function pruneInactiveTyping(channelId: string, nowMs: number): void {
+  for (const [key, typedAtMs] of typingActivityByChannelAndUser) {
+    if (!key.startsWith(`${channelId}:`)) {
+      continue;
+    }
+
     if (nowMs - typedAtMs >= typingIndicatorTtlMs) {
-      typingActivityByUserId.delete(userId);
+      typingActivityByChannelAndUser.delete(key);
     }
   }
 }
 
-function hasActiveTypingIndicator(): boolean {
+function hasActiveTypingIndicator(channelId: string): boolean {
   const nowMs = Date.now();
-  pruneInactiveTyping(nowMs);
+  pruneInactiveTyping(channelId, nowMs);
 
-  for (const userId of typingActivityByUserId.keys()) {
+  const channelKeyPrefix = `${channelId}:`;
+
+  for (const key of typingActivityByChannelAndUser.keys()) {
+    if (!key.startsWith(channelKeyPrefix)) {
+      continue;
+    }
+
+    const userId = key.slice(channelKeyPrefix.length);
+
     if (userId !== client.user?.id) {
       return true;
     }
@@ -424,11 +475,21 @@ function parseAssistantResponse(responseText: string): {
   };
 }
 
-async function generateAssistantResponse(): Promise<void> {
-  const channel = await client.channels.fetch(requiredTargetChannelId);
+async function generateAssistantResponse(channelId: string): Promise<void> {
+  const channel = await client.channels.fetch(channelId);
 
   if (!channel || !channel.isSendable()) {
-    console.warn("Target channel not found or is not sendable.");
+    console.warn(
+      `Listening channel ${channelId} not found or is not sendable.`,
+    );
+    return;
+  }
+
+  resetDailyTotalsIfNeeded();
+
+  if (calculateDailyUsagePercent(runningDailySpendUsd) >= 100) {
+    await channel.send(usageCapReachedMessage);
+    setSleepMode("usage cap reached");
     return;
   }
 
@@ -443,7 +504,7 @@ async function generateAssistantResponse(): Promise<void> {
     }, 7000);
 
     const systemPrompt = await loadPrompt("message.txt");
-    const activeMessageQueue = getMessageQueueForResponse();
+    const activeMessageQueue = getMessageQueueForResponse(channelId);
     const combinedMessageQueue = combineConsecutiveMessages(activeMessageQueue);
     const openAiInput = formatOpenAiInput(combinedMessageQueue);
 
@@ -498,7 +559,15 @@ async function generateAssistantResponse(): Promise<void> {
       console.error("Failed to save usage state:", error);
     });
 
-    await channel.send(tokenReport);
+    const usageLogChannel = await client.channels.fetch(
+      requiredUsageLogChannelId,
+    );
+
+    if (!usageLogChannel || !usageLogChannel.isSendable()) {
+      console.warn("Usage log channel not found or is not sendable.");
+    } else {
+      await usageLogChannel.send(tokenReport);
+    }
 
     const { responseLines, shouldSleep } = parseAssistantResponse(responseText);
 
@@ -529,12 +598,14 @@ async function flushPendingResponse(): Promise<void> {
     return;
   }
 
-  if (conversationMode !== "listening") {
+  const listeningChannelId = activeListeningChannelId;
+
+  if (conversationMode !== "listening" || !listeningChannelId) {
     pendingResponse = false;
     return;
   }
 
-  if (hasActiveTypingIndicator()) {
+  if (hasActiveTypingIndicator(listeningChannelId)) {
     scheduleResponseDebounce(typingRecheckDelayMs);
     return;
   }
@@ -548,7 +619,7 @@ async function flushPendingResponse(): Promise<void> {
   pendingResponse = false;
 
   try {
-    await generateAssistantResponse();
+    await generateAssistantResponse(listeningChannelId);
   } finally {
     responseInProgress = false;
 
@@ -562,15 +633,15 @@ if (!token) {
   throw new Error("Missing DISCORD_TOKEN in environment");
 }
 
-if (!targetChannelId) {
-  throw new Error("Missing DISCORD_TARGET_CHANNEL_ID in environment");
-}
-
 if (!openAiApiKey) {
   throw new Error("Missing OPENAI_API_KEY in environment");
 }
 
-const requiredTargetChannelId = targetChannelId;
+if (!usageLogChannelId) {
+  throw new Error("Missing DISCORD_USAGE_LOG_CHANNEL_ID in environment");
+}
+
+const requiredUsageLogChannelId = usageLogChannelId;
 
 const openai = new OpenAI({ apiKey: openAiApiKey });
 
@@ -631,22 +702,19 @@ const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, async (readyClient) => {
+client.once(Events.ClientReady, () => {
   updatePresenceForMode();
 
-  const channel = await readyClient.channels.fetch(requiredTargetChannelId);
-
-  if (!channel || !channel.isSendable()) {
-    console.warn("Target channel not found or is not sendable.");
-    return;
-  }
+  void client.channels
+    .fetch(requiredUsageLogChannelId)
+    .then((usageLogChannel) => {
+      if (!usageLogChannel || !usageLogChannel.isSendable()) {
+        console.warn("Usage log channel not found or is not sendable.");
+      }
+    });
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  if (message.channelId !== requiredTargetChannelId) {
-    return;
-  }
-
   if (
     message.author.id === client.user?.id &&
     message.content.startsWith(tokenReportPrefix)
@@ -658,7 +726,11 @@ client.on(Events.MessageCreate, async (message) => {
   const role = isAssistantMessage ? "assistant" : "user";
   const speakerName = isAssistantMessage ? "ben" : message.author.username;
 
-  typingActivityByUserId.delete(message.author.id);
+  const typingActivityKey = getTypingActivityKey(
+    message.channelId,
+    message.author.id,
+  );
+  typingActivityByChannelAndUser.delete(typingActivityKey);
 
   trackUser(message.author.id, message.author.username);
 
@@ -668,22 +740,25 @@ client.on(Events.MessageCreate, async (message) => {
 
   const trackedContent = convertMentionsToUsernames(message.content);
 
-  messageQueue.push({
+  const channelMessageQueue = getOrCreateMessageQueue(message.channelId);
+
+  channelMessageQueue.push({
     role,
     speakerName,
     content: trackedContent,
     createdAt: message.createdAt.toISOString(),
   });
 
-  while (messageQueue.length > queueSize) {
-    messageQueue.shift();
+  while (channelMessageQueue.length > queueSize) {
+    channelMessageQueue.shift();
   }
 
-  if (isPingingBen(message)) {
-    setListeningMode("mentioned");
-  }
-
-  if (conversationMode === "listening") {
+  if (conversationMode === "sleeping" && isPingingBen(message)) {
+    setListeningMode("mentioned", message.channelId);
+  } else if (
+    conversationMode === "listening" &&
+    activeListeningChannelId === message.channelId
+  ) {
     refreshListeningInactivityTimeout();
   }
 
@@ -691,7 +766,11 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  if (pendingResponse && conversationMode === "listening") {
+  if (
+    pendingResponse &&
+    conversationMode === "listening" &&
+    activeListeningChannelId === message.channelId
+  ) {
     scheduleResponseDebounce();
   }
 
@@ -703,15 +782,15 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
+  if (activeListeningChannelId !== message.channelId) {
+    return;
+  }
+
   pendingResponse = true;
   scheduleResponseDebounce();
 });
 
 client.on(Events.TypingStart, (typing) => {
-  if (typing.channel.id !== requiredTargetChannelId) {
-    return;
-  }
-
   if (responseInProgress) {
     return;
   }
@@ -720,11 +799,22 @@ client.on(Events.TypingStart, (typing) => {
     return;
   }
 
+  if (
+    !activeListeningChannelId ||
+    typing.channel.id !== activeListeningChannelId
+  ) {
+    return;
+  }
+
   if (typing.user.bot) {
     return;
   }
 
-  typingActivityByUserId.set(typing.user.id, Date.now());
+  const typingActivityKey = getTypingActivityKey(
+    typing.channel.id,
+    typing.user.id,
+  );
+  typingActivityByChannelAndUser.set(typingActivityKey, Date.now());
 
   if (!pendingResponse) {
     return;
