@@ -1,10 +1,10 @@
 import { run, type AgentInputItem } from "@openai/agents";
 import {
-  type AnyThreadChannel,
   ChannelType,
   Client,
   Events,
   GatewayIntentBits,
+  type AnyThreadChannel,
   type Message,
   type ThreadAutoArchiveDuration,
 } from "discord.js";
@@ -22,8 +22,8 @@ import { createReminderService, type Reminder } from "./reminders.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { createThreadRuntime } from "./thread-runtime.js";
 import {
-  buildToolStatusMessage,
-  getToolCallId,
+  formatStatusUpdateMessage,
+  formatToolExecutionMessage,
   isOperationalStatusMessage,
 } from "./tool-status.js";
 
@@ -170,26 +170,18 @@ async function handleThreadMessage(
         currentTimeIso: new Date().toISOString(),
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         requestingUserId: message.author.id,
+        hasPendingStatusUpdate: false,
+        announceToolExecution: async (toolName: string) => {
+          await thread.send(formatToolExecutionMessage(toolName));
+        },
+        sendStatusUpdate: async (statusMessage: string) => {
+          await thread.send(formatStatusUpdateMessage(statusMessage));
+        },
       },
     });
-    const announcedToolCallIds = new Set<string>();
 
     for await (const event of result) {
-      if (event.type !== "run_item_stream_event" || event.name !== "tool_called") {
-        continue;
-      }
-
-      const toolCallId = getToolCallId(event.item.rawItem);
-
-      if (toolCallId && announcedToolCallIds.has(toolCallId)) {
-        continue;
-      }
-
-      if (toolCallId) {
-        announcedToolCallIds.add(toolCallId);
-      }
-
-      await thread.send(buildToolStatusMessage(event.item.rawItem));
+      void event;
     }
 
     const responseText = extractResponseText(result.finalOutput);
@@ -251,10 +243,12 @@ async function sendReminderToAssignedChannel(
   const channel = await discordClient.channels.fetch(channelId);
 
   if (!channel || !channel.isSendable() || channel.isThread()) {
-    throw new Error("Configured reminder channel is unavailable or not a text channel.");
+    throw new Error(
+      "Configured reminder channel is unavailable or not a text channel.",
+    );
   }
 
-  await channel.send(`<@${reminder.userId}> reminder: ${reminder.reminderText}`);
+  await channel.send(`<@${reminder.userId}> ${reminder.reminderText}`);
 }
 
 /**
