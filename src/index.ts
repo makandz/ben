@@ -19,6 +19,7 @@ import {
   splitForDiscord,
 } from "./discord-messages.js";
 import { createReminderService, type Reminder } from "./reminders.js";
+import { loadSystemPrompt } from "./system-prompt.js";
 import { createThreadRuntime } from "./thread-runtime.js";
 import {
   buildToolStatusMessage,
@@ -31,6 +32,7 @@ const THREAD_AUTO_ARCHIVE_DURATION: ThreadAutoArchiveDuration = 1_440;
 loadEnvironmentFile();
 
 const config = loadConfig();
+const systemPrompt = loadSystemPrompt();
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -43,7 +45,7 @@ const reminderService = createReminderService({
   deliverReminder: (reminder) =>
     sendReminderToAssignedChannel(client, config.discordChannelId, reminder),
 });
-const agent = createDiscordThreadAgent(config, reminderService);
+const agent = createDiscordThreadAgent(config, reminderService, systemPrompt);
 const runtime = createThreadRuntime();
 
 client.once(Events.ClientReady, async (readyClient) => {
