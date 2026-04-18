@@ -24,7 +24,7 @@ export function formatToolExecutionMessage(toolName: string): string {
 }
 
 /**
- * Formats a plain-looking in-thread progress message sent via the status tool.
+ * Formats a plain-looking progress message sent via the status tool.
  *
  * @param message - Model-authored progress update.
  * @returns Human-readable Discord message content.

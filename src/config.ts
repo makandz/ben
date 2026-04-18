@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 const DEFAULT_SQLITE_DATABASE_PATH = resolve(process.cwd(), "data", "ben.sqlite3");
+const DEFAULT_RESPONSE_SILENCE_TIMEOUT_MS = 5_000;
 const SUPPORTED_REASONING_EFFORTS = new Set<ReasoningEffort>([
   "none",
   "minimal",
@@ -26,6 +27,7 @@ export type Config = {
   sqliteDatabasePath: string;
   openAiModel: string;
   openAiReasoningEffort: ReasoningEffort;
+  responseSilenceTimeoutMs: number;
   openAiMaxTokens?: number;
 };
 
@@ -58,6 +60,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     "OPENAI_MAX_TOKENS",
     env.OPENAI_MAX_TOKENS,
   );
+  const responseSilenceTimeoutMs =
+    parseOptionalPositiveInt(
+      "RESPONSE_SILENCE_TIMEOUT_MS",
+      env.RESPONSE_SILENCE_TIMEOUT_MS,
+    ) ?? DEFAULT_RESPONSE_SILENCE_TIMEOUT_MS;
   const requestedReasoningEffort = parseReasoningEffort(
     env.OPENAI_REASONING_EFFORT?.trim() || "none",
   );
@@ -72,6 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sqliteDatabasePath,
     openAiModel,
     openAiReasoningEffort,
+    responseSilenceTimeoutMs,
     openAiMaxTokens,
   };
 }

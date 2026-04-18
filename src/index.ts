@@ -1,26 +1,23 @@
-import { run, type AgentInputItem } from "@openai/agents";
+import { run } from "@openai/agents";
 import {
-  ChannelType,
+  ActivityType,
   Client,
   Events,
   GatewayIntentBits,
-  type AnyThreadChannel,
   type Message,
-  type ThreadAutoArchiveDuration,
+  type SendableChannels,
+  type Typing,
 } from "discord.js";
-import { createDiscordThreadAgent } from "./agent.js";
+import { createDiscordAgent } from "./agent.js";
+import { createChannelRuntime } from "./channel-runtime.js";
 import { loadConfig, loadEnvironmentFile } from "./config.js";
 import {
   buildPrompt,
-  buildThreadName,
   createAssistantMessage,
   createUserMessage,
   extractResponseText,
   splitForDiscord,
 } from "./discord-messages.js";
-import { createReminderService, type Reminder } from "./reminders.js";
-import { loadSystemPrompt } from "./system-prompt.js";
-import { createThreadRuntime } from "./thread-runtime.js";
 import {
   initializeOpenAiLogging,
   logAgentRunCompleted,
@@ -28,13 +25,18 @@ import {
   logAgentRunStarted,
   logAgentStreamEvent,
 } from "./openai-logging.js";
+import { createReminderService, type Reminder } from "./reminders.js";
+import { loadSystemPrompt } from "./system-prompt.js";
 import {
   formatStatusUpdateMessage,
   formatToolExecutionMessage,
-  isOperationalStatusMessage,
 } from "./tool-status.js";
 
-const THREAD_AUTO_ARCHIVE_DURATION: ThreadAutoArchiveDuration = 1_440;
+const CHANNEL_QUEUE_IDLE_TIMEOUT_MS = 30 * 60 * 1_000;
+const ACTIVE_TYPING_WINDOW_MS = 10_000;
+const NO_RESPONSE_TEXT = "N/A";
+const SLEEPING_ACTIVITY_TEXT = "zzz";
+const AWAKE_ACTIVITY_TEXT = "thinking..";
 
 loadEnvironmentFile();
 
@@ -45,6 +47,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageTyping,
     GatewayIntentBits.MessageContent,
   ],
 });
@@ -53,13 +56,15 @@ const reminderService = createReminderService({
   deliverReminder: (reminder) =>
     sendReminderToAssignedChannel(client, config.discordChannelId, reminder),
 });
-const agent = createDiscordThreadAgent(config, reminderService, systemPrompt);
-const runtime = createThreadRuntime();
+const agent = createDiscordAgent(config, reminderService, systemPrompt);
+const runtime = createChannelRuntime();
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Discord bot logged in as ${readyClient.user.tag}`);
-  console.log(`Monitoring channel ${config.discordChannelId}`);
+  console.log("Tracking guild channel conversations");
+  console.log(`Reminder delivery channel ${config.discordChannelId}`);
   console.log(`Reminder database ${config.sqliteDatabasePath}`);
+  console.log(`Response silence timeout ${config.responseSilenceTimeoutMs}ms`);
   console.log(
     `OpenAI model ${config.openAiModel} with reasoning effort ${config.openAiReasoningEffort}${config.openAiMaxTokens ? ` and max tokens ${config.openAiMaxTokens}` : ""}`,
   );
@@ -67,124 +72,208 @@ client.once(Events.ClientReady, async (readyClient) => {
     `OpenAI raw event logging ${openAiLogging.logRawModelEvents ? "enabled" : "disabled"}`,
   );
 
+  updateActivityStatus();
   await reminderService.start();
   console.log("Reminder scheduler started");
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) {
+  if (!shouldTrackChannelMessage(message)) {
     return;
   }
 
-  if (message.channel.isThread()) {
-    if (!(await isManagedThread(message))) {
-      return;
-    }
-
-    runtime.queueWork(message.channel.id, async () => {
-      await handleThreadMessage(message.channel as AnyThreadChannel, message);
-    });
-    return;
-  }
-
-  if (!shouldStartManagedThread(message)) {
-    return;
-  }
-
-  const thread = await message.startThread({
-    name: buildThreadName(message, client.user?.id),
-    autoArchiveDuration: THREAD_AUTO_ARCHIVE_DURATION,
-  });
-
-  runtime.markManagedThread(thread.id);
-
-  runtime.queueWork(thread.id, async () => {
-    await handleThreadMessage(thread, message);
-  });
-});
-
-client.login(config.discordBotToken);
-
-/**
- * Returns true for root-channel messages that should spawn a managed bot thread.
- *
- * @param message - Incoming Discord message.
- * @returns `true` when the message should create a managed thread.
- */
-function shouldStartManagedThread(message: Message): boolean {
-  return (
-    message.channel.type === ChannelType.GuildText &&
-    message.channelId === config.discordChannelId &&
-    message.mentions.has(client.user!) &&
-    !message.author.bot
-  );
-}
-
-/**
- * Determines whether an existing Discord thread belongs to this bot's workflow.
- *
- * @param message - Incoming Discord message from a thread.
- * @returns Whether the thread is managed by this bot.
- */
-async function isManagedThread(message: Message): Promise<boolean> {
-  const thread = message.channel;
-
-  if (!thread.isThread() || thread.parentId !== config.discordChannelId) {
-    return false;
-  }
-
-  if (runtime.hasManagedThread(thread.id)) {
-    return true;
-  }
-
-  const starterMessage = await thread.fetchStarterMessage();
-
-  if (!starterMessage) {
-    return false;
-  }
-
-  const managed = shouldStartManagedThread(starterMessage);
-
-  if (managed) {
-    runtime.markManagedThread(thread.id);
-  }
-
-  return managed;
-}
-
-/**
- * Rebuilds the prompt, executes the agent, and posts streamed tool notices and replies.
- *
- * @param thread - Discord thread to reply in.
- * @param message - Message that triggered the reply.
- * @returns Nothing.
- */
-async function handleThreadMessage(
-  thread: AnyThreadChannel,
-  message: Message,
-): Promise<void> {
-  const history = await getThreadHistory(thread, message.id);
   const prompt = buildPrompt(message, client.user?.id);
 
   if (!prompt) {
     return;
   }
 
-  history.push(createUserMessage(prompt));
+  runtime.recordMessage(message.channelId, createUserMessage(prompt), {
+    createdAt: message.createdTimestamp,
+    messageId: message.id,
+    userId: message.author.id,
+  });
+  scheduleConversationExpiry(message.channelId);
+
+  if (shouldWakeChannel(message)) {
+    const previousMode = runtime.getMode(message.channelId);
+    runtime.setMode(message.channelId, "awake");
+
+    if (previousMode !== "awake") {
+      updateActivityStatus();
+    }
+  }
+
+  if (runtime.getMode(message.channelId) === "awake") {
+    scheduleReplyAttempt(message.channelId);
+  }
+});
+
+client.on(Events.TypingStart, async (typing) => {
+  if (!shouldTrackTyping(typing)) {
+    return;
+  }
+
+  const channelId = typing.channel.id;
+
+  if (runtime.getMode(channelId) !== "awake") {
+    return;
+  }
+
+  runtime.recordTyping(
+    channelId,
+    typing.user.id,
+    typing.startedTimestamp +
+      Math.max(config.responseSilenceTimeoutMs, ACTIVE_TYPING_WINDOW_MS),
+    typing.startedTimestamp,
+  );
+  scheduleReplyAttempt(channelId);
+});
+
+client.login(config.discordBotToken);
+
+/**
+ * Returns whether the incoming Discord message should be tracked for conversation state.
+ *
+ * @param message - Incoming Discord message.
+ * @returns `true` when the message belongs to a sendable guild text channel.
+ */
+function shouldTrackChannelMessage(message: Message): boolean {
+  return (
+    message.inGuild() &&
+    !message.author.bot &&
+    !message.channel.isThread() &&
+    message.channel.isSendable()
+  );
+}
+
+/**
+ * Returns whether the message should wake Ben into active reply mode for that channel.
+ *
+ * @param message - Incoming Discord message.
+ * @returns `true` when the bot was mentioned directly.
+ */
+function shouldWakeChannel(message: Message): boolean {
+  const botUserId = client.user?.id;
+
+  return botUserId !== undefined && message.mentions.users.has(botUserId);
+}
+
+/**
+ * Returns whether a typing event should delay an awake channel's next response attempt.
+ *
+ * @param typing - Discord typing event.
+ * @returns `true` when the event belongs to a tracked guild channel.
+ */
+function shouldTrackTyping(typing: Typing): boolean {
+  return (
+    typing.inGuild() &&
+    !typing.user.bot &&
+    !typing.channel.isThread?.() &&
+    typing.channel.isSendable()
+  );
+}
+
+/**
+ * Schedules the channel queue to be cleared after prolonged message inactivity.
+ *
+ * @param channelId - Discord channel id whose conversation queue should expire.
+ * @returns Nothing.
+ */
+function scheduleConversationExpiry(channelId: string): void {
+  const timer = setTimeout(() => {
+    const wasAwake = runtime.getMode(channelId) === "awake";
+
+    runtime.clearChannel(channelId);
+
+    if (wasAwake) {
+      updateActivityStatus();
+    }
+  }, CHANNEL_QUEUE_IDLE_TIMEOUT_MS);
+
+  runtime.setClearTimer(channelId, timer);
+}
+
+/**
+ * Schedules a silence-gated reply attempt for an awake channel.
+ *
+ * @param channelId - Discord channel id whose next reply should be debounced.
+ * @returns Nothing.
+ */
+function scheduleReplyAttempt(channelId: string): void {
+  const delay = Math.max(
+    runtime.getRemainingSilenceMs(
+      channelId,
+      Date.now(),
+      config.responseSilenceTimeoutMs,
+    ),
+    0,
+  );
+  const timer = setTimeout(() => {
+    runtime.clearResponseTimer(channelId);
+    runtime.queueWork(channelId, async () => {
+      await handleChannelReply(channelId);
+    });
+  }, delay);
+
+  runtime.setResponseTimer(channelId, timer);
+}
+
+/**
+ * Runs the model for an awake channel once the conversation has gone quiet.
+ *
+ * @param channelId - Discord channel id whose queue should be evaluated.
+ * @returns Nothing.
+ */
+async function handleChannelReply(channelId: string): Promise<void> {
+  const state = runtime.getChannel(channelId);
+
+  if (!state || state.mode !== "awake" || state.history.length === 0) {
+    return;
+  }
+
+  const remainingSilenceMs = runtime.getRemainingSilenceMs(
+    channelId,
+    Date.now(),
+    config.responseSilenceTimeoutMs,
+  );
+
+  if (remainingSilenceMs > 0) {
+    scheduleReplyAttempt(channelId);
+    return;
+  }
+
+  const channel = await fetchSendableChannel(channelId);
+
+  if (!channel) {
+    runtime.clearChannel(channelId);
+    updateActivityStatus();
+    return;
+  }
+
+  const messageId = state.lastMessageId;
+  const requestingUserId = state.lastRequestingUserId;
+
+  if (!messageId || !requestingUserId) {
+    return;
+  }
+
+  const history = [...state.history];
   const currentTimeIso = new Date().toISOString();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const prompt = describeLatestPrompt(history.at(-1));
 
   logAgentRunStarted({
-    threadId: thread.id,
-    messageId: message.id,
-    requestingUserId: message.author.id,
+    channelId,
+    messageId,
+    requestingUserId,
     historyLength: history.length,
     model: config.openAiModel,
     timeZone,
     prompt,
   });
 
-  await thread.sendTyping();
+  await channel.sendTyping();
 
   try {
     const result = await run(agent, history, {
@@ -192,12 +281,12 @@ async function handleThreadMessage(
       context: {
         currentTimeIso,
         timeZone,
-        requestingUserId: message.author.id,
+        requestingUserId,
         announceToolExecution: async (toolName: string) => {
-          await thread.send(formatToolExecutionMessage(toolName));
+          await channel.send(formatToolExecutionMessage(toolName));
         },
         sendStatusUpdate: async (statusMessage: string) => {
-          await thread.send(formatStatusUpdateMessage(statusMessage));
+          await channel.send(formatStatusUpdateMessage(statusMessage));
         },
       },
     });
@@ -213,60 +302,93 @@ async function handleThreadMessage(
     }
 
     logAgentRunCompleted({
-      threadId: thread.id,
-      messageId: message.id,
+      channelId,
+      messageId,
       lastResponseId: result.lastResponseId,
       historyLength: result.history.length,
       newItemTypes: result.newItems.map((item) => item.type),
       finalOutput: result.finalOutput,
     });
 
+    if (isNoResponse(responseText)) {
+      runtime.setMode(channelId, "sleep");
+      runtime.clearTyping(channelId);
+      runtime.trimHistoryToCurrentMode(channelId);
+      updateActivityStatus();
+      return;
+    }
+
     for (const chunk of splitForDiscord(responseText)) {
-      await thread.send(chunk);
-      history.push(createAssistantMessage(chunk));
+      await channel.send(chunk);
+      runtime.recordAssistantMessage(
+        channelId,
+        createAssistantMessage(chunk),
+        Date.now(),
+      );
     }
   } catch (error) {
     logAgentRunFailed({
-      threadId: thread.id,
-      messageId: message.id,
+      channelId,
+      messageId,
       historyLength: history.length,
       prompt,
       error,
     });
-    console.error(`Failed to handle thread ${thread.id}:`, error);
+    console.error(`Failed to handle channel ${channelId}:`, error);
 
     const fallback =
       "I hit an error while generating a reply. Please try again in a moment.";
 
-    await thread.send(fallback);
-    history.push(createAssistantMessage(fallback));
+    await channel.send(fallback);
+    runtime.recordAssistantMessage(
+      channelId,
+      createAssistantMessage(fallback),
+      Date.now(),
+    );
   }
 }
 
 /**
- * Returns cached thread history when available, otherwise rebuilds it from Discord.
+ * Updates the bot's visible Discord activity to match whether any channel is awake.
  *
- * @param thread - Discord thread whose history should be loaded.
- * @param skipMessageId - Message id to omit from rebuilt history.
- * @returns Agent history for the thread.
+ * @returns Nothing.
  */
-async function getThreadHistory(
-  thread: AnyThreadChannel,
-  skipMessageId?: string,
-): Promise<AgentInputItem[]> {
-  const existing = runtime.getHistory(thread.id);
+function updateActivityStatus(): void {
+  const text =
+    runtime.countAwakeChannels() > 0 ? AWAKE_ACTIVITY_TEXT : SLEEPING_ACTIVITY_TEXT;
 
-  if (existing) {
-    return existing;
-  }
-
-  const history = await rebuildThreadHistory(thread, skipMessageId);
-  runtime.setHistory(thread.id, history);
-  return history;
+  client.user?.setPresence({
+    activities: [
+      {
+        name: text,
+        state: text,
+        type: ActivityType.Custom,
+      },
+    ],
+    status: "online",
+  });
 }
 
 /**
- * Sends a due reminder into the configured root channel.
+ * Fetches a sendable, non-thread channel by id.
+ *
+ * @param channelId - Discord channel id to fetch.
+ * @returns The sendable channel, or `null` when unavailable.
+ */
+async function fetchSendableChannel(
+  channelId: string,
+): Promise<SendableChannels | null> {
+  const channel = await client.channels.fetch(channelId);
+
+  if (!channel || channel.isThread() || !channel.isSendable()) {
+    return null;
+  }
+
+  return channel;
+}
+
+/**
+ * Sends a due reminder into the configured reminder channel.
  *
  * @param discordClient - Logged-in Discord client.
  * @param channelId - Configured destination channel id.
@@ -290,57 +412,36 @@ async function sendReminderToAssignedChannel(
 }
 
 /**
- * Reconstructs agent history from the thread starter plus prior thread messages.
+ * Returns the last stored user prompt for logging purposes.
  *
- * @param thread - Discord thread whose history should be rebuilt.
- * @param skipMessageId - Message id to omit while rebuilding history.
- * @returns Reconstructed agent history.
+ * @param item - Most recent history item.
+ * @returns Prompt preview text for logging.
  */
-async function rebuildThreadHistory(
-  thread: AnyThreadChannel,
-  skipMessageId?: string,
-): Promise<AgentInputItem[]> {
-  const history: AgentInputItem[] = [];
-  const starterMessage = await thread.fetchStarterMessage();
-
-  if (starterMessage && shouldStartManagedThread(starterMessage)) {
-    const starterPrompt = buildPrompt(starterMessage, client.user?.id);
-
-    if (starterPrompt) {
-      history.push(createUserMessage(starterPrompt));
-    }
+function describeLatestPrompt(item: unknown): string {
+  if (!item || typeof item !== "object") {
+    return "";
   }
 
-  const messages = await thread.messages.fetch({ limit: 100 });
-  const sortedMessages = [...messages.values()].sort(
-    (left, right) => left.createdTimestamp - right.createdTimestamp,
-  );
+  const content = (item as { content?: Array<{ text?: string }> }).content;
 
-  for (const existingMessage of sortedMessages) {
-    if (existingMessage.id === skipMessageId) {
-      continue;
-    }
-
-    if (existingMessage.author.id === client.user?.id) {
-      const text = existingMessage.content.trim();
-
-      if (text && !isOperationalStatusMessage(text)) {
-        history.push(createAssistantMessage(text));
-      }
-
-      continue;
-    }
-
-    if (existingMessage.author.bot) {
-      continue;
-    }
-
-    const prompt = buildPrompt(existingMessage, client.user?.id);
-
-    if (prompt) {
-      history.push(createUserMessage(prompt));
-    }
+  if (!Array.isArray(content)) {
+    return "";
   }
 
-  return history;
+  const text = content
+    .map((part) => part.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+
+  return text;
+}
+
+/**
+ * Returns whether the model explicitly chose to stay silent.
+ *
+ * @param responseText - Final model output text.
+ * @returns `true` when the response means Ben should go back to sleep.
+ */
+function isNoResponse(responseText: string): boolean {
+  return responseText.trim().toUpperCase() === NO_RESPONSE_TEXT;
 }

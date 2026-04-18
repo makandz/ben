@@ -18,8 +18,13 @@ export function buildPrompt(
   const attachmentUrls = [...message.attachments.values()].map(
     (attachment) => attachment.url,
   );
+  const mentionedOnly =
+    botUserId !== undefined &&
+    content.length === 0 &&
+    attachmentUrls.length === 0 &&
+    message.mentions.users.has(botUserId);
 
-  if (!content && attachmentUrls.length === 0) {
+  if (!content && attachmentUrls.length === 0 && !mentionedOnly) {
     return null;
   }
 
@@ -27,10 +32,12 @@ export function buildPrompt(
     message.member?.displayName ??
     message.author.displayName ??
     message.author.username;
-  const parts = [`${displayName} says:`];
+  const parts = [displayName];
 
   if (content) {
     parts.push(content);
+  } else if (mentionedOnly) {
+    parts.push("[pinged ben]");
   }
 
   if (attachmentUrls.length > 0) {
@@ -41,7 +48,7 @@ export function buildPrompt(
 }
 
 /**
- * Removes a direct bot mention so prompts and thread names do not repeat it.
+ * Removes a direct bot mention so stored prompts do not repeat it.
  *
  * @param message - Discord message whose content should be cleaned.
  * @param botUserId - Bot user id to remove from mention markup.
@@ -55,19 +62,6 @@ export function stripBotMention(message: Message, botUserId?: string): string {
   return message.content
     .replaceAll(`<@${botUserId}>`, "")
     .replaceAll(`<@!${botUserId}>`, "");
-}
-
-/**
- * Builds a readable thread name from the message content with a safe length cap.
- *
- * @param message - Discord message used as the thread title source.
- * @param botUserId - Bot user id to remove from mention markup.
- * @returns Thread title trimmed to Discord-safe length.
- */
-export function buildThreadName(message: Message, botUserId?: string): string {
-  const cleaned = stripBotMention(message, botUserId).replace(/\s+/g, " ").trim();
-  const base = cleaned || `chat-with-${message.author.username}`;
-  return base.slice(0, 90);
 }
 
 /**

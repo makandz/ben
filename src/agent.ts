@@ -94,14 +94,14 @@ const randomNumberTool = tool<
 });
 
 /**
- * Creates the OpenAI agent used to answer messages inside managed Discord threads.
+ * Creates the OpenAI agent used to answer messages inside tracked Discord channels.
  *
  * @param config - Runtime configuration for model selection and limits.
  * @param reminderService - Persistent reminder service exposed to the model.
  * @param systemPrompt - Base instructions loaded from the startup prompt text file.
- * @returns Configured thread assistant agent.
+ * @returns Configured Discord assistant agent.
  */
-export function createDiscordThreadAgent(
+export function createDiscordAgent(
   config: Config,
   reminderService: ReminderService,
   systemPrompt: string,
@@ -114,7 +114,7 @@ export function createDiscordThreadAgent(
   >({
     name: "send_status_update",
     description:
-      "Send a short progress update into the current Discord thread as a normal chat message while you work. Use this before starting a multi-step tool chain and between dependent tool calls when the user would benefit from seeing what you are doing next.",
+      "Send a short progress update into the current Discord channel as a normal chat message while you work. Use this before starting a multi-step tool chain and between dependent tool calls when the user would benefit from seeing what you are doing next.",
     parameters: z.object({
       message: z
         .string()
@@ -197,7 +197,7 @@ export function createDiscordThreadAgent(
   );
 
   return new Agent<DiscordAgentContext>({
-    name: "Discord Thread Assistant",
+    name: "Discord Channel Assistant",
     instructions: (runContext) =>
       [
         systemPrompt,

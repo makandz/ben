@@ -15,7 +15,7 @@ export type OpenAiLoggingSettings = {
 };
 
 type AgentRunStartDetails = {
-  threadId: string;
+  channelId: string;
   messageId: string;
   requestingUserId: string;
   historyLength: number;
@@ -25,7 +25,7 @@ type AgentRunStartDetails = {
 };
 
 type AgentRunCompletedDetails = {
-  threadId: string;
+  channelId: string;
   messageId: string;
   lastResponseId?: string;
   historyLength: number;
@@ -34,7 +34,7 @@ type AgentRunCompletedDetails = {
 };
 
 type AgentRunFailedDetails = {
-  threadId: string;
+  channelId: string;
   messageId: string;
   historyLength: number;
   prompt: string;
@@ -77,7 +77,7 @@ export function initializeOpenAiLogging(
 }
 
 /**
- * Logs the start of an OpenAI agent run for a Discord thread message.
+ * Logs the start of an OpenAI agent run for a Discord channel message.
  *
  * @param details - Run metadata and a preview of the current prompt.
  * @returns Nothing.
