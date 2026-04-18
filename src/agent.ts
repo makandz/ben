@@ -2,6 +2,11 @@ import { randomInt } from "node:crypto";
 import { Agent, tool } from "@openai/agents";
 import { z } from "zod";
 import type { Config } from "./config.js";
+import {
+  logToolInvocationFailure,
+  logToolInvocationStart,
+  logToolInvocationSuccess,
+} from "./openai-logging.js";
 import type { ReminderService } from "./reminders.js";
 
 const scheduleReminderParameters = z
@@ -41,7 +46,6 @@ export type DiscordAgentContext = {
   currentTimeIso: string;
   timeZone: string;
   requestingUserId: string;
-  hasPendingStatusUpdate: boolean;
   announceToolExecution: (toolName: string) => Promise<void>;
   sendStatusUpdate: (message: string) => Promise<void>;
 };
@@ -66,19 +70,26 @@ const randomNumberTool = tool<
       path: ["max"],
     }),
   execute: async ({ min, max }, context) => {
-    const activeContext = consumePendingStatusUpdate(
-      context,
-      "generate_random_number",
-    );
-    await activeContext.context.announceToolExecution("generate_random_number");
-    logToolInvocation("generate_random_number", { min, max });
+    const payload = { min, max };
 
-    if (min === max) {
-      return `Generated random integer: ${min} (range ${min} to ${max}, inclusive).`;
+    try {
+      await beginToolInvocation(
+        "generate_random_number",
+        payload,
+        context,
+      );
+
+      const result =
+        min === max
+          ? `Generated random integer: ${min} (range ${min} to ${max}, inclusive).`
+          : `Generated random integer: ${randomInt(min, max + 1)} (range ${min} to ${max}, inclusive).`;
+
+      logToolInvocationSuccess("generate_random_number", result);
+      return result;
+    } catch (error) {
+      logToolInvocationFailure("generate_random_number", payload, error);
+      throw error;
     }
-
-    const value = randomInt(min, max + 1);
-    return `Generated random integer: ${value} (range ${min} to ${max}, inclusive).`;
   },
 });
 
@@ -115,14 +126,23 @@ export function createDiscordThreadAgent(
         ),
     }),
     execute: async ({ message }, context) => {
-      if (!context) {
-        throw new Error("Status updates require an active run context.");
-      }
+      const payload = { message };
 
-      logToolInvocation("send_status_update", { message });
-      await context.context.sendStatusUpdate(message);
-      context.context.hasPendingStatusUpdate = true;
-      return "Status update sent.";
+      try {
+        logToolInvocationStart("send_status_update", payload);
+
+        if (!context) {
+          throw new Error("Status updates require an active run context.");
+        }
+
+        await context.context.sendStatusUpdate(message);
+        const result = "Status update sent.";
+        logToolInvocationSuccess("send_status_update", result);
+        return result;
+      } catch (error) {
+        logToolInvocationFailure("send_status_update", payload, error);
+        throw error;
+      }
     },
   });
 
@@ -133,35 +153,45 @@ export function createDiscordThreadAgent(
         "Save a reminder for the requesting user so the bot can send it later in the assigned channel even after a restart.",
       parameters: scheduleReminderParameters,
       execute: async ({ reminderText, dueAtIso, delaySeconds }, context) => {
-        const activeContext = consumePendingStatusUpdate(
-          context,
-          "schedule_reminder",
-        );
-        await activeContext.context.announceToolExecution("schedule_reminder");
-        logToolInvocation("schedule_reminder", {
+        const payload = {
           reminderText,
           dueAtIso,
           delaySeconds,
-        });
+        };
 
-        const currentTimeMs = parseCurrentTime(activeContext.context.currentTimeIso);
-        const dueAtMs =
-          dueAtIso !== null
-            ? parseAbsoluteReminderTime(dueAtIso)
-            : currentTimeMs + requireDelaySeconds(delaySeconds) * 1_000;
+        try {
+          const activeContext = await beginToolInvocation(
+            "schedule_reminder",
+            payload,
+            context,
+          );
 
-        if (dueAtMs <= currentTimeMs) {
-          throw new Error("Reminder time must be in the future.");
+          const currentTimeMs = parseCurrentTime(
+            activeContext.context.currentTimeIso,
+          );
+          const dueAtMs =
+            dueAtIso !== null
+              ? parseAbsoluteReminderTime(dueAtIso)
+              : currentTimeMs + requireDelaySeconds(delaySeconds) * 1_000;
+
+          if (dueAtMs <= currentTimeMs) {
+            throw new Error("Reminder time must be in the future.");
+          }
+
+          const reminder = reminderService.scheduleReminder({
+            userId: activeContext.context.requestingUserId,
+            reminderText,
+            dueAtMs,
+            createdAtMs: currentTimeMs,
+          });
+
+          const result = `Reminder ${reminder.id} saved for <@${reminder.userId}> at ${formatReminderTime(reminder.dueAtMs, activeContext.context.timeZone)} (${new Date(reminder.dueAtMs).toISOString()}).`;
+          logToolInvocationSuccess("schedule_reminder", result);
+          return result;
+        } catch (error) {
+          logToolInvocationFailure("schedule_reminder", payload, error);
+          throw error;
         }
-
-        const reminder = reminderService.scheduleReminder({
-          userId: activeContext.context.requestingUserId,
-          reminderText,
-          dueAtMs,
-          createdAtMs: currentTimeMs,
-        });
-
-        return `Reminder ${reminder.id} saved for <@${reminder.userId}> at ${formatReminderTime(reminder.dueAtMs, activeContext.context.timeZone)} (${new Date(reminder.dueAtMs).toISOString()}).`;
       },
     },
   );
@@ -177,6 +207,7 @@ export function createDiscordThreadAgent(
     model: config.openAiModel,
     modelSettings: {
       maxTokens: config.openAiMaxTokens,
+      parallelToolCalls: false,
       reasoning: {
         effort: config.openAiReasoningEffort,
       },
@@ -186,42 +217,26 @@ export function createDiscordThreadAgent(
 }
 
 /**
- * Ensures a fresh status update has been sent immediately before a non-status tool call.
+ * Logs the start of a tool invocation and posts the Discord tool-status message immediately.
  *
+ * @param toolName - Tool that has just started executing.
+ * @param payload - Parsed tool arguments for logging.
  * @param context - Active tool execution context.
- * @param toolName - Tool that is about to execute.
- * @returns Nothing.
+ * @returns Active tool execution context.
  */
-function consumePendingStatusUpdate(
-  context: { context: DiscordAgentContext } | undefined,
+async function beginToolInvocation(
   toolName: string,
-): { context: DiscordAgentContext } {
+  payload: Record<string, unknown>,
+  context: { context: DiscordAgentContext } | undefined,
+): Promise<{ context: DiscordAgentContext }> {
+  logToolInvocationStart(toolName, payload);
+
   if (!context) {
     throw new Error(`${toolName} requires an active run context.`);
   }
 
-  if (!context.context.hasPendingStatusUpdate) {
-    throw new Error(
-      `Before calling ${toolName}, you must first call send_status_update with a concise explanation of what you are about to do.`,
-    );
-  }
-
-  context.context.hasPendingStatusUpdate = false;
+  await context.context.announceToolExecution(toolName);
   return context;
-}
-
-/**
- * Logs tool execution from inside the tool implementation for local runtime visibility.
- *
- * @param toolName - Tool being executed.
- * @param payload - Parsed tool arguments.
- * @returns Nothing.
- */
-function logToolInvocation(
-  toolName: string,
-  payload: Record<string, unknown>,
-): void {
-  console.log(`[tool] ${toolName}`, payload);
 }
 
 /**

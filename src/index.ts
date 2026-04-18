@@ -22,6 +22,13 @@ import { createReminderService, type Reminder } from "./reminders.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { createThreadRuntime } from "./thread-runtime.js";
 import {
+  initializeOpenAiLogging,
+  logAgentRunCompleted,
+  logAgentRunFailed,
+  logAgentRunStarted,
+  logAgentStreamEvent,
+} from "./openai-logging.js";
+import {
   formatStatusUpdateMessage,
   formatToolExecutionMessage,
   isOperationalStatusMessage,
@@ -31,6 +38,7 @@ const THREAD_AUTO_ARCHIVE_DURATION: ThreadAutoArchiveDuration = 1_440;
 
 loadEnvironmentFile();
 
+const openAiLogging = initializeOpenAiLogging();
 const config = loadConfig();
 const systemPrompt = loadSystemPrompt();
 const client = new Client({
@@ -54,6 +62,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Reminder database ${config.sqliteDatabasePath}`);
   console.log(
     `OpenAI model ${config.openAiModel} with reasoning effort ${config.openAiReasoningEffort}${config.openAiMaxTokens ? ` and max tokens ${config.openAiMaxTokens}` : ""}`,
+  );
+  console.log(
+    `OpenAI raw event logging ${openAiLogging.logRawModelEvents ? "enabled" : "disabled"}`,
   );
 
   await reminderService.start();
@@ -160,6 +171,18 @@ async function handleThreadMessage(
   }
 
   history.push(createUserMessage(prompt));
+  const currentTimeIso = new Date().toISOString();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  logAgentRunStarted({
+    threadId: thread.id,
+    messageId: message.id,
+    requestingUserId: message.author.id,
+    historyLength: history.length,
+    model: config.openAiModel,
+    timeZone,
+    prompt,
+  });
 
   await thread.sendTyping();
 
@@ -167,10 +190,9 @@ async function handleThreadMessage(
     const result = await run(agent, history, {
       stream: true,
       context: {
-        currentTimeIso: new Date().toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        currentTimeIso,
+        timeZone,
         requestingUserId: message.author.id,
-        hasPendingStatusUpdate: false,
         announceToolExecution: async (toolName: string) => {
           await thread.send(formatToolExecutionMessage(toolName));
         },
@@ -181,7 +203,7 @@ async function handleThreadMessage(
     });
 
     for await (const event of result) {
-      void event;
+      logAgentStreamEvent(event, openAiLogging);
     }
 
     const responseText = extractResponseText(result.finalOutput);
@@ -190,11 +212,27 @@ async function handleThreadMessage(
       throw new Error("Model returned an empty response.");
     }
 
+    logAgentRunCompleted({
+      threadId: thread.id,
+      messageId: message.id,
+      lastResponseId: result.lastResponseId,
+      historyLength: result.history.length,
+      newItemTypes: result.newItems.map((item) => item.type),
+      finalOutput: result.finalOutput,
+    });
+
     for (const chunk of splitForDiscord(responseText)) {
       await thread.send(chunk);
       history.push(createAssistantMessage(chunk));
     }
   } catch (error) {
+    logAgentRunFailed({
+      threadId: thread.id,
+      messageId: message.id,
+      historyLength: history.length,
+      prompt,
+      error,
+    });
     console.error(`Failed to handle thread ${thread.id}:`, error);
 
     const fallback =
