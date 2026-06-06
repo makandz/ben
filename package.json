@@ -1,34 +1,29 @@
 {
-  "name": "ben",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "discord-hello-bot",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --project tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "node --import tsx src/index.ts"
+    "lint": "eslint ."
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/makandz/ben.git"
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/makandz/ben/issues"
-  },
-  "homepage": "https://github.com/makandz/ben#readme",
   "dependencies": {
-    "@langchain/google-genai": "^0.2.1",
-    "discord.js": "^14.18.0",
-    "dotenv": "^16.4.7",
-    "langchain": "^0.3.19"
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
-    "@types/node": "^22.13.14",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
-  }
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3"
+  },
+  "packageManager": "pnpm@10.32.1+sha512.a706938f0e89ac1456b6563eab4edf1d1faf3368d1191fc5c59790e96dc918e4456ab2e67d613de1043d2e8c81f87303e6b40d4ffeca9df15ef1ad567348f2be"
 }
