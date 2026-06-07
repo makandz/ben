@@ -1,36 +1,83 @@
 import "dotenv/config";
 
-import { ChannelType, Client, Events, GatewayIntentBits } from "discord.js";
+import { Events } from "discord.js";
 
-const token = process.env.DISCORD_TOKEN;
-const channelId = process.env.DISCORD_CHANNEL_ID;
+import { BotSession } from "./bot/BotSession.js";
+import { loadConfig } from "./config.js";
+import { createDiscordClient } from "./discord/client.js";
+import { isPing, toHumanMessage } from "./discord/message.js";
+import { handleUsageCommand, registerUsageCommand } from "./discord/usageCommand.js";
+import { Logger } from "./logger.js";
+import { OpenAIResponder } from "./openai/responder.js";
+import { OpenAIUsageStore } from "./openai/usageStore.js";
 
-if (!token) {
-  throw new Error("Missing DISCORD_TOKEN. Add it to .env before starting the bot.");
-}
+const config = loadConfig();
+const logger = new Logger(config.logLevel);
+const client = createDiscordClient();
+const usageStore = new OpenAIUsageStore(config, logger);
+const responder = new OpenAIResponder(config, logger, usageStore);
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+const session = new BotSession(
+  config,
+  responder,
+  async (channelId, text) => {
+    const channel = await client.channels.fetch(channelId);
+
+    if (!channel?.isSendable()) {
+      throw new Error("Response channel is not sendable.");
+    }
+
+    await channel.send(text);
+  },
+  async (channelId) => {
+    const channel = await client.channels.fetch(channelId);
+
+    if (!channel?.isSendable()) {
+      throw new Error("Typing channel is not sendable.");
+    }
+
+    await channel.sendTyping();
+  },
+  logger,
+);
+
+client.once(Events.ClientReady, (readyClient) => {
+  logger.info("discord.ready", { user: readyClient.user.tag });
+  void registerUsageCommand(readyClient, logger).catch((error: unknown) => {
+    logger.warn("discord.command_registration_failed", { error: String(error) });
+  });
 });
 
-client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`Hello, logged in as ${readyClient.user.tag}.`);
+client.on(Events.MessageCreate, (message) => {
+  const humanMessage = toHumanMessage(message, client);
 
-  if (!channelId) {
+  if (humanMessage === null) {
     return;
   }
 
-  const channel = await readyClient.channels.fetch(channelId);
+  session.handleMessage(humanMessage, isPing(message, client));
+});
 
-  if (channel?.type !== ChannelType.GuildText) {
-    throw new Error("DISCORD_CHANNEL_ID must point to a text channel the bot can access.");
+client.on(Events.TypingStart, (typing) => {
+  const user = typing.user;
+
+  if (user.bot || user.id === client.user?.id || user.username === null) {
+    return;
   }
 
-  await channel.send("Hello!");
+  session.handleTyping(user.username);
+});
+
+client.on(Events.InteractionCreate, (interaction) => {
+  if (!interaction.isChatInputCommand() || interaction.commandName !== "usage") {
+    return;
+  }
+
+  void handleUsageCommand(interaction, usageStore, logger);
 });
 
 client.on(Events.Error, (error) => {
-  console.error("Discord client error:", error);
+  logger.error("discord.error", { error: String(error) });
 });
 
-await client.login(token);
+await client.login(config.discordToken);
