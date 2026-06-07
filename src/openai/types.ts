@@ -8,6 +8,11 @@ export type ResponderResult =
       text: string;
       reasoningSummary?: string;
       memoryItems: ApiMemory;
+      sleepAfter?: boolean;
+    }
+  | {
+      type: "wait";
+      memoryItems: ApiMemory;
     }
   | {
       type: "sleep";

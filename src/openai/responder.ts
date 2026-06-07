@@ -83,28 +83,50 @@ export class OpenAIResponder {
       }
 
       const text = response.output_text.trim();
+      const command = parseModelCommand(text);
       const reasoningSummary = extractReasoningSummary(response.output);
+      const memoryItems = [
+        userItem,
+        ...(stripReasoningSummaries(response.output) as ResponseInputItem[]),
+      ];
 
       if (text === "N/A") {
         this.logger.info("openai.response", { action: "sleep_na" });
         return { type: "sleep" };
       }
 
+      if (command.sleep && command.text.length === 0) {
+        this.logger.info("openai.response", { action: "sleep_command" });
+        return { type: "sleep" };
+      }
+
+      if (command.wait && command.text.length === 0) {
+        this.logger.info("openai.response", {
+          action: "wait_command",
+          memoryItems: memoryItems.length,
+        });
+        return {
+          type: "wait",
+          memoryItems,
+        };
+      }
+
       this.logger.info("openai.response", {
-        action: "message",
-        chars: text.length,
+        action: command.sleep ? "message_sleep_command" : "message",
+        chars: command.text.length,
         reasoningSummaryChars: reasoningSummary?.length ?? 0,
         outputItems: response.output.length,
       });
 
       const result: ResponderResult = {
         type: "message",
-        text,
-        memoryItems: [
-          userItem,
-          ...(stripReasoningSummaries(response.output) as ResponseInputItem[]),
-        ],
+        text: command.text,
+        memoryItems,
       };
+
+      if (command.sleep) {
+        result.sleepAfter = true;
+      }
 
       if (reasoningSummary !== undefined) {
         result.reasoningSummary = reasoningSummary;
@@ -116,6 +138,27 @@ export class OpenAIResponder {
       return { type: "failed", error };
     }
   }
+}
+
+function parseModelCommand(text: string): { text: string; sleep: boolean; wait: boolean } {
+  let sleep = false;
+  let wait = false;
+
+  const visibleText = text
+    .replace(/<\s*(sleep|wait)\s*>/gi, (_match, command: string) => {
+      if (command.toLowerCase() === "sleep") {
+        sleep = true;
+      } else {
+        wait = true;
+      }
+
+      return "";
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { text: visibleText, sleep, wait };
 }
 
 function extractReasoningSummary(output: ResponseOutputItem[]): string | undefined {

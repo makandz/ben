@@ -15,6 +15,7 @@ export class BotSession {
   private queuedWhileProcessing: HumanMessage[] = [];
   private apiMemory: ApiMemory = [];
   private recentContextForPendingBatch: HumanMessage[] = [];
+  private channelLastActivityAt = new Map<string, number>();
   private debounceTimer: NodeJS.Timeout | undefined;
   private idleSleepTimer: NodeJS.Timeout | undefined;
 
@@ -27,6 +28,8 @@ export class BotSession {
   ) {}
 
   handleMessage(message: HumanMessage, ping: boolean): void {
+    this.markChannelActivity(message.channelId);
+
     if (this.mode === "sleeping") {
       const recentContext = [...this.sleepFifo];
       this.addToSleepFifo(message);
@@ -65,13 +68,20 @@ export class BotSession {
     this.resetIdleSleepTimer();
   }
 
-  handleTyping(username: string): void {
+  handleTyping(channelId: string, username: string): void {
     if (this.mode === "sleeping") {
       return;
     }
 
+    this.markChannelActivity(channelId);
+
     if (this.mode === "processing") {
-      this.logger.debug("typing.processing", { username });
+      this.logger.debug("typing.processing", { channelId, username });
+      return;
+    }
+
+    if (channelId !== this.pendingBatch[0]?.channelId) {
+      this.logger.debug("typing.ignored_other_channel", { channelId, username });
       return;
     }
 
@@ -92,6 +102,7 @@ export class BotSession {
       contextCount: recentContext.length,
     });
 
+    void this.sendStatusMessage(message.channelId, "> 👋 woke up..");
     this.scheduleDebounce();
     this.resetIdleSleepTimer();
   }
@@ -103,13 +114,46 @@ export class BotSession {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
-      void this.processPendingBatch();
+      this.processPendingBatchIfIdle();
     }, this.config.debounceMs);
 
     this.logger.debug("debounce.scheduled", {
       delayMs: this.config.debounceMs,
       pending: this.pendingBatch.length,
     });
+  }
+
+  private processPendingBatchIfIdle(): void {
+    const channelId = this.pendingBatch[0]?.channelId;
+
+    if (channelId === undefined) {
+      void this.processPendingBatch();
+      return;
+    }
+
+    const lastActivityAt = this.channelLastActivityAt.get(channelId) ?? 0;
+    const idleForMs = Date.now() - lastActivityAt;
+
+    if (idleForMs < this.config.debounceMs) {
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = undefined;
+        this.processPendingBatchIfIdle();
+      }, this.config.debounceMs - idleForMs);
+
+      this.logger.debug("debounce.waiting_for_idle", {
+        channelId,
+        idleForMs,
+        remainingMs: this.config.debounceMs - idleForMs,
+        pending: this.pendingBatch.length,
+      });
+      return;
+    }
+
+    void this.processPendingBatch();
+  }
+
+  private markChannelActivity(channelId: string): void {
+    this.channelLastActivityAt.set(channelId, Date.now());
   }
 
   private resetIdleSleepTimer(): void {
@@ -134,7 +178,12 @@ export class BotSession {
 
     const messages = this.pendingBatch;
     const recentContext = this.recentContextForPendingBatch;
-    const userPrompt = buildUserPrompt({ recentContext, messages });
+    const userPrompt = buildUserPrompt({
+      recentContext,
+      messages,
+      knownPeople: this.config.knownPeople,
+      includeKnownPeople: this.apiMemory.length === 0,
+    });
     const responseChannelId = messages[0]?.channelId;
 
     this.pendingBatch = [];
@@ -181,6 +230,7 @@ export class BotSession {
     responseChannelId: string | undefined,
   ): Promise<void> {
     if (result.type === "sleep") {
+      await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
       this.goToSleep("model_na");
       return;
     }
@@ -192,19 +242,32 @@ export class BotSession {
         }
 
         const messageText = formatDiscordResponse(result);
-        const messageParts = splitDiscordResponse(messageText);
 
-        await this.sendMessageParts(responseChannelId, messageParts);
+        await this.sendMessage(responseChannelId, messageText);
         this.apiMemory = [...this.apiMemory, ...result.memoryItems];
         this.logger.info("discord.sent", {
           chars: messageText.length,
-          messages: messageParts.length,
           reasoningSummaryChars: result.reasoningSummary?.length ?? 0,
           memoryItems: this.apiMemory.length,
         });
       } catch (error) {
         this.logger.warn("discord.send_failed", { error: String(error) });
       }
+
+      if (result.sleepAfter === true) {
+        await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
+        this.goToSleep("model_sleep_command");
+        return;
+      }
+    }
+
+    if (result.type === "wait") {
+      await this.sendStatusMessage(responseChannelId, "> ⏳ waiting..");
+      this.apiMemory = [...this.apiMemory, ...result.memoryItems];
+      this.logger.info("mode.wait", {
+        queued: this.queuedWhileProcessing.length,
+        memoryItems: this.apiMemory.length,
+      });
     }
 
     if (result.type === "failed") {
@@ -246,14 +309,18 @@ export class BotSession {
     this.logger.info("mode.awake_idle");
   }
 
-  private async sendMessageParts(channelId: string, messageParts: string[]): Promise<void> {
-    for (const [index, messagePart] of messageParts.entries()) {
-      if (index > 0) {
-        await delay(this.config.messageLineDelayMs);
-      }
-
-      await this.sendMessage(channelId, messagePart);
+  private async sendStatusMessage(
+    channelId: string | undefined,
+    text: string,
+  ): Promise<void> {
+    if (channelId === undefined) {
+      this.logger.warn("discord.status_send_skipped", { reason: "missing_channel" });
+      return;
     }
+
+    await this.sendMessage(channelId, text).catch((error: unknown) => {
+      this.logger.warn("discord.status_send_failed", { error: String(error) });
+    });
   }
 
   private goToSleep(reason: string): void {
@@ -293,29 +360,13 @@ function formatDiscordResponse(result: Extract<ResponderResult, { type: "message
     return result.text;
   }
 
-  return `> 💭 ${stripBoldMarkdown(result.reasoningSummary)}\n\n${result.text}`;
-}
-
-function splitDiscordResponse(text: string): string[] {
-  const parts = text
-    .split(/\r?\n/)
-    .filter((part) => part.trim().length > 0);
-
-  return parts.length > 0 ? parts : [text];
+  return `> 💭 ${stripBoldMarkdown(result.reasoningSummary)}\n${result.text}`;
 }
 
 function stripBoldMarkdown(text: string): string {
   return text
     .replace(/\*\*([^*\n]+)\*\*/g, "$1")
     .replace(/__([^_\n]+)__/g, "$1");
-}
-
-async function delay(ms: number): Promise<void> {
-  if (ms === 0) {
-    return;
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function formatUsd(value: number): string {

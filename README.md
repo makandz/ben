@@ -26,7 +26,7 @@ TypeScript Discord bot that wakes on a ping, batches recent human messages, and 
 4. Enable these Discord gateway intents for the bot in the Discord developer portal:
 
    - Message Content Intent
-   - Server Members Intent is not required
+   - Server Members Intent
 
 5. Start the bot:
 
@@ -45,6 +45,7 @@ The bot logs when it connects. It replies in the channel where the triggering me
 - `OPENAI_MODEL` defaults to `gpt-5.4-mini`.
 - `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
 - `OPENAI_USAGE_LOG_DIR` defaults to `logs/openai-usage`. Usage is stored in monthly `YYMM.json` files with daily buckets.
+- `KNOWN_PEOPLE` maps Discord usernames to real names in prompts, for example `{"makandz":"Makan"}`. Known users are shown as `makandz (Makan): ...`; unknown users stay as `username: ...`.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
 - `LOG_PROMPTS=true` logs full prompts at debug level.
 - `BOT_DEBOUNCE_MS` defaults to `3000`.

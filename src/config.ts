@@ -1,11 +1,16 @@
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+export interface KnownPerson {
+  name: string;
+}
+
 export interface AppConfig {
   discordToken: string;
   openaiApiKey: string;
   openaiModel: string;
   openaiDailyBudgetUsd: number;
   openaiUsageLogDir: string;
+  knownPeople: Record<string, KnownPerson>;
   logLevel: LogLevel;
   logPrompts: boolean;
   debounceMs: number;
@@ -51,6 +56,61 @@ function readLogLevel(): LogLevel {
   return value as LogLevel;
 }
 
+function readKnownPeople(): Record<string, KnownPerson> {
+  const value = process.env.KNOWN_PEOPLE;
+
+  if (!value) {
+    return {};
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error('KNOWN_PEOPLE must be valid JSON, like {"makandz":"Makan"}.');
+  }
+
+  if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error("KNOWN_PEOPLE must be a JSON object mapping Discord usernames to names.");
+  }
+
+  const knownPeople: Record<string, KnownPerson> = {};
+
+  for (const [username, value] of Object.entries(parsed)) {
+    const normalizedUsername = username.trim().toLowerCase();
+
+    if (normalizedUsername.length === 0) {
+      throw new Error("KNOWN_PEOPLE must use non-empty Discord usernames.");
+    }
+
+    if (typeof value === "string") {
+      const name = value.trim();
+
+      if (name.length === 0) {
+        throw new Error("KNOWN_PEOPLE string entries must use non-empty names.");
+      }
+
+      knownPeople[normalizedUsername] = { name };
+      continue;
+    }
+
+    if (typeof value !== "string") {
+      throw new Error("KNOWN_PEOPLE must map Discord usernames to names.");
+    }
+
+    const name = value.trim();
+
+    if (name.length === 0) {
+      throw new Error("KNOWN_PEOPLE must map non-empty Discord usernames to non-empty names.");
+    }
+
+    knownPeople[normalizedUsername] = { name };
+  }
+
+  return knownPeople;
+}
+
 export function loadConfig(): AppConfig {
   return {
     discordToken: requireEnv("DISCORD_TOKEN"),
@@ -58,6 +118,7 @@ export function loadConfig(): AppConfig {
     openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
     openaiDailyBudgetUsd: readNumberEnv("OPENAI_DAILY_BUDGET_USD", 0),
     openaiUsageLogDir: process.env.OPENAI_USAGE_LOG_DIR ?? "logs/openai-usage",
+    knownPeople: readKnownPeople(),
     logLevel: readLogLevel(),
     logPrompts: process.env.LOG_PROMPTS === "true",
     debounceMs: readNumberEnv("BOT_DEBOUNCE_MS", 3_000),
