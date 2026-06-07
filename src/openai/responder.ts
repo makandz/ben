@@ -82,6 +82,8 @@ export class OpenAIResponder {
         this.logger.warn("openai.usage_missing");
       }
 
+      this.logger.info("openai.raw_response", { text: response.output_text });
+
       const text = response.output_text.trim();
       const command = parseModelCommand(text);
       const reasoningSummary = extractReasoningSummary(response.output);
@@ -93,6 +95,36 @@ export class OpenAIResponder {
       if (text === "N/A") {
         this.logger.info("openai.response", { action: "sleep_na" });
         return { type: "sleep" };
+      }
+
+      if (command.reactionEmoji !== undefined && command.text.length === 0) {
+        this.logger.info("openai.response", {
+          action: command.sleep ? "reaction_sleep_command" : "reaction",
+          emoji: command.reactionEmoji,
+          memoryItems: memoryItems.length,
+        });
+
+        const result: ResponderResult = {
+          type: "reaction",
+          emoji: command.reactionEmoji,
+          memoryItems,
+        };
+
+        if (command.sleep) {
+          result.sleepAfter = true;
+        }
+
+        return result;
+      }
+
+      if (command.invalidReaction && command.text.length === 0 && !command.sleep) {
+        this.logger.warn("openai.invalid_reaction_ignored", {
+          memoryItems: memoryItems.length,
+        });
+        return {
+          type: "wait",
+          memoryItems,
+        };
       }
 
       if (command.sleep && command.text.length === 0) {
@@ -140,11 +172,30 @@ export class OpenAIResponder {
   }
 }
 
-function parseModelCommand(text: string): { text: string; sleep: boolean; wait: boolean } {
+function parseModelCommand(text: string): {
+  text: string;
+  sleep: boolean;
+  wait: boolean;
+  reactionEmoji?: string;
+  invalidReaction: boolean;
+} {
   let sleep = false;
   let wait = false;
+  let reactionEmoji: string | undefined;
+  let invalidReaction = false;
 
   const visibleText = text
+    .replace(/<\s*react\s*:\s*([^>]+)\s*>/gi, (_match, rawEmoji: string) => {
+      const candidate = rawEmoji.trim();
+
+      if (reactionEmoji === undefined && isSingleUnicodeEmoji(candidate)) {
+        reactionEmoji = candidate;
+      } else {
+        invalidReaction = true;
+      }
+
+      return "";
+    })
     .replace(/<\s*(sleep|wait)\s*>/gi, (_match, command: string) => {
       if (command.toLowerCase() === "sleep") {
         sleep = true;
@@ -158,7 +209,31 @@ function parseModelCommand(text: string): { text: string; sleep: boolean; wait: 
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  return { text: visibleText, sleep, wait };
+  const command = { text: visibleText, sleep, wait, invalidReaction };
+
+  if (reactionEmoji === undefined) {
+    return command;
+  }
+
+  return { ...command, reactionEmoji };
+}
+
+function isSingleUnicodeEmoji(value: string): boolean {
+  if (value.length === 0) {
+    return false;
+  }
+
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+
+  if (graphemes.length !== 1) {
+    return false;
+  }
+
+  return (
+    /^(?=.*\p{Extended_Pictographic})[\p{Extended_Pictographic}\p{Emoji_Component}\p{Emoji_Modifier}\uFE0F\u200D]+$/u.test(
+      value,
+    ) || /^\p{Regional_Indicator}{2}$/u.test(value)
+  );
 }
 
 function extractReasoningSummary(output: ResponseOutputItem[]): string | undefined {

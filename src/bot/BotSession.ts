@@ -7,6 +7,7 @@ import type { BotMode, HumanMessage } from "./types.js";
 
 type SendMessageToChannel = (channelId: string, text: string) => Promise<void>;
 type SendTypingToChannel = (channelId: string) => Promise<void>;
+type ReactToMessage = (channelId: string, messageId: string, emoji: string) => Promise<void>;
 
 export class BotSession {
   private mode: BotMode = "sleeping";
@@ -24,6 +25,7 @@ export class BotSession {
     private readonly responder: OpenAIResponder,
     private readonly sendMessage: SendMessageToChannel,
     private readonly sendTyping: SendTypingToChannel,
+    private readonly reactToMessage: ReactToMessage,
     private readonly logger: Logger,
   ) {}
 
@@ -185,6 +187,7 @@ export class BotSession {
       includeKnownPeople: this.apiMemory.length === 0,
     });
     const responseChannelId = messages[0]?.channelId;
+    const reactionTargetMessageId = messages.at(-1)?.id;
 
     this.pendingBatch = [];
     this.recentContextForPendingBatch = [];
@@ -200,7 +203,7 @@ export class BotSession {
 
     try {
       const result = await this.responder.respond(userPrompt, this.apiMemory);
-      await this.handleResponderResult(result, responseChannelId);
+      await this.handleResponderResult(result, responseChannelId, reactionTargetMessageId);
     } finally {
       stopTyping();
     }
@@ -228,6 +231,7 @@ export class BotSession {
   private async handleResponderResult(
     result: ResponderResult,
     responseChannelId: string | undefined,
+    reactionTargetMessageId: string | undefined,
   ): Promise<void> {
     if (result.type === "sleep") {
       await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
@@ -252,6 +256,29 @@ export class BotSession {
         });
       } catch (error) {
         this.logger.warn("discord.send_failed", { error: String(error) });
+      }
+
+      if (result.sleepAfter === true) {
+        await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
+        this.goToSleep("model_sleep_command");
+        return;
+      }
+    }
+
+    if (result.type === "reaction") {
+      try {
+        if (responseChannelId === undefined || reactionTargetMessageId === undefined) {
+          throw new Error("Cannot react without a channel ID and target message ID.");
+        }
+
+        await this.reactToMessage(responseChannelId, reactionTargetMessageId, result.emoji);
+        this.apiMemory = [...this.apiMemory, ...result.memoryItems];
+        this.logger.info("discord.reacted", {
+          emoji: result.emoji,
+          memoryItems: this.apiMemory.length,
+        });
+      } catch (error) {
+        this.logger.warn("discord.react_failed", { error: String(error) });
       }
 
       if (result.sleepAfter === true) {
@@ -360,7 +387,7 @@ function formatDiscordResponse(result: Extract<ResponderResult, { type: "message
     return result.text;
   }
 
-  return `> 💭 ${stripBoldMarkdown(result.reasoningSummary)}\n${result.text}`;
+  return `> 💭 ${stripBoldMarkdown(result.reasoningSummary).toLowerCase()}\n${result.text}`;
 }
 
 function stripBoldMarkdown(text: string): string {

@@ -11,6 +11,12 @@ export type ResponderResult =
       sleepAfter?: boolean;
     }
   | {
+      type: "reaction";
+      emoji: string;
+      memoryItems: ApiMemory;
+      sleepAfter?: boolean;
+    }
+  | {
       type: "wait";
       memoryItems: ApiMemory;
     }

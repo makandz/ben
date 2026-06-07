@@ -47,6 +47,16 @@ const session = new BotSession(
 
     await channel.sendTyping();
   },
+  async (channelId, messageId, emoji) => {
+    const channel = await client.channels.fetch(channelId);
+
+    if (!channel?.isTextBased() || !("messages" in channel)) {
+      throw new Error("Reaction channel is not text-based.");
+    }
+
+    const message = await channel.messages.fetch(messageId);
+    await message.react(emoji);
+  },
   logger,
 );
 
