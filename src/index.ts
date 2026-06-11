@@ -8,6 +8,9 @@ import { createDiscordClient } from "./discord/client.js";
 import { isPing, toHumanMessage } from "./discord/message.js";
 import { escapeBroadcastMentions, UserMentionDirectory } from "./discord/mentions.js";
 import { handleUsageCommand, registerUsageCommand } from "./discord/usageCommand.js";
+import { InternalActionRunner } from "./internal/actions.js";
+import { InternalActionScheduler } from "./internal/scheduler.js";
+import { InternalStateStore } from "./internal/stateStore.js";
 import { Logger } from "./logger.js";
 import { OpenAIResponder } from "./openai/responder.js";
 import { OpenAIUsageStore } from "./openai/usageStore.js";
@@ -17,7 +20,39 @@ const logger = new Logger(config.logLevel);
 const client = createDiscordClient();
 const usageStore = new OpenAIUsageStore(config, logger);
 const responder = new OpenAIResponder(config, logger, usageStore);
+const internalActionRunner = new InternalActionRunner(config, logger, usageStore);
+const internalStateStore = new InternalStateStore(config.internalStatePath, logger);
 const mentionDirectory = new UserMentionDirectory();
+const sendLogMessage = async (text: string): Promise<boolean> => {
+  if (config.discordLogChannelId === undefined) {
+    return false;
+  }
+
+  const channel = await client.channels.fetch(config.discordLogChannelId);
+
+  if (!channel?.isSendable()) {
+    throw new Error("Log channel is not sendable.");
+  }
+
+  await channel.send({
+    content: text,
+    allowedMentions: {
+      parse: [],
+    },
+  });
+
+  return true;
+};
+const internalActionScheduler = new InternalActionScheduler(
+  config,
+  client,
+  internalActionRunner,
+  internalStateStore,
+  async (text) => {
+    await sendLogMessage(text);
+  },
+  logger,
+);
 
 const session = new BotSession(
   config,
@@ -35,6 +70,26 @@ const session = new BotSession(
       content: escapeBroadcastMentions(mentionDirectory.convertUsernamesToMentions(safeText)),
       allowedMentions: {
         parse: ["users"],
+      },
+    });
+  },
+  async (text, fallbackChannelId) => {
+    const sentToLog = await sendLogMessage(text);
+
+    if (sentToLog || fallbackChannelId === undefined) {
+      return;
+    }
+
+    const channel = await client.channels.fetch(fallbackChannelId);
+
+    if (!channel?.isSendable()) {
+      throw new Error("Status fallback channel is not sendable.");
+    }
+
+    await channel.send({
+      content: text,
+      allowedMentions: {
+        parse: [],
       },
     });
   },
@@ -57,12 +112,14 @@ const session = new BotSession(
     const message = await channel.messages.fetch(messageId);
     await message.react(emoji);
   },
+  () => internalActionScheduler.getCurrentActivityStatus(),
   logger,
 );
 
 client.once(Events.ClientReady, (readyClient) => {
   mentionDirectory.rememberUser(readyClient.user);
   logger.info("discord.ready", { user: readyClient.user.tag });
+  internalActionScheduler.start();
   void registerUsageCommand(readyClient, logger).catch((error: unknown) => {
     logger.warn("discord.command_registration_failed", { error: String(error) });
   });
@@ -99,6 +156,16 @@ client.on(Events.InteractionCreate, (interaction) => {
 
 client.on(Events.Error, (error) => {
   logger.error("discord.error", { error: String(error) });
+});
+
+process.once("SIGINT", () => {
+  internalActionScheduler.stop();
+  void client.destroy();
+});
+
+process.once("SIGTERM", () => {
+  internalActionScheduler.stop();
+  void client.destroy();
 });
 
 await client.login(config.discordToken);

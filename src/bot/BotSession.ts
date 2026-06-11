@@ -6,8 +6,10 @@ import { buildUserPrompt } from "./formatMessages.js";
 import type { BotMode, HumanMessage } from "./types.js";
 
 type SendMessageToChannel = (channelId: string, text: string) => Promise<void>;
+type SendStatusMessage = (text: string, fallbackChannelId: string | undefined) => Promise<void>;
 type SendTypingToChannel = (channelId: string) => Promise<void>;
 type ReactToMessage = (channelId: string, messageId: string, emoji: string) => Promise<void>;
+type GetCurrentActivityStatus = () => string | undefined;
 
 export class BotSession {
   private mode: BotMode = "sleeping";
@@ -24,8 +26,10 @@ export class BotSession {
     private readonly config: AppConfig,
     private readonly responder: OpenAIResponder,
     private readonly sendMessage: SendMessageToChannel,
+    private readonly sendStatus: SendStatusMessage,
     private readonly sendTyping: SendTypingToChannel,
     private readonly reactToMessage: ReactToMessage,
+    private readonly getCurrentActivityStatus: GetCurrentActivityStatus,
     private readonly logger: Logger,
   ) {}
 
@@ -104,7 +108,7 @@ export class BotSession {
       contextCount: recentContext.length,
     });
 
-    void this.sendStatusMessage(message.channelId, "> 👋 woke up..");
+    void this.sendStatusMessage("> 👋 woke up..", message.channelId);
     this.scheduleDebounce();
     this.resetIdleSleepTimer();
   }
@@ -180,12 +184,22 @@ export class BotSession {
 
     const messages = this.pendingBatch;
     const recentContext = this.recentContextForPendingBatch;
-    const userPrompt = buildUserPrompt({
+    const includeFirstPromptContext = this.apiMemory.length === 0;
+    const currentActivityStatus = includeFirstPromptContext
+      ? this.getCurrentActivityStatus()
+      : undefined;
+    const promptOptions: Parameters<typeof buildUserPrompt>[0] = {
       recentContext,
       messages,
       knownPeople: this.config.knownPeople,
-      includeKnownPeople: this.apiMemory.length === 0,
-    });
+      includeKnownPeople: includeFirstPromptContext,
+    };
+
+    if (currentActivityStatus !== undefined) {
+      promptOptions.currentActivityStatus = currentActivityStatus;
+    }
+
+    const userPrompt = buildUserPrompt(promptOptions);
     const responseChannelId = messages[0]?.channelId;
     const reactionTargetMessageId = messages.at(-1)?.id;
 
@@ -234,7 +248,7 @@ export class BotSession {
     reactionTargetMessageId: string | undefined,
   ): Promise<void> {
     if (result.type === "sleep") {
-      await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
+      await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
       this.goToSleep("model_na");
       return;
     }
@@ -245,7 +259,14 @@ export class BotSession {
           throw new Error("Cannot send a response without a channel ID.");
         }
 
-        const messageText = formatDiscordResponse(result);
+        if (result.reasoningSummary !== undefined) {
+          await this.sendStatusMessage(
+            formatReasoningStatus(result.reasoningSummary),
+            responseChannelId,
+          );
+        }
+
+        const messageText = result.text;
 
         await this.sendMessage(responseChannelId, messageText);
         this.apiMemory = [...this.apiMemory, ...result.memoryItems];
@@ -259,7 +280,7 @@ export class BotSession {
       }
 
       if (result.sleepAfter === true) {
-        await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
+        await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
         this.goToSleep("model_sleep_command");
         return;
       }
@@ -282,14 +303,14 @@ export class BotSession {
       }
 
       if (result.sleepAfter === true) {
-        await this.sendStatusMessage(responseChannelId, "> 💤 sleeping..");
+        await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
         this.goToSleep("model_sleep_command");
         return;
       }
     }
 
     if (result.type === "wait") {
-      await this.sendStatusMessage(responseChannelId, "> ⏳ waiting..");
+      await this.sendStatusMessage("> ⏳ waiting..", responseChannelId);
       this.apiMemory = [...this.apiMemory, ...result.memoryItems];
       this.logger.info("mode.wait", {
         queued: this.queuedWhileProcessing.length,
@@ -337,15 +358,10 @@ export class BotSession {
   }
 
   private async sendStatusMessage(
-    channelId: string | undefined,
     text: string,
+    fallbackChannelId: string | undefined,
   ): Promise<void> {
-    if (channelId === undefined) {
-      this.logger.warn("discord.status_send_skipped", { reason: "missing_channel" });
-      return;
-    }
-
-    await this.sendMessage(channelId, text).catch((error: unknown) => {
+    await this.sendStatus(text, fallbackChannelId).catch((error: unknown) => {
       this.logger.warn("discord.status_send_failed", { error: String(error) });
     });
   }
@@ -382,12 +398,8 @@ export class BotSession {
   }
 }
 
-function formatDiscordResponse(result: Extract<ResponderResult, { type: "message" }>): string {
-  if (result.reasoningSummary === undefined) {
-    return result.text;
-  }
-
-  return `> 💭 ${stripBoldMarkdown(result.reasoningSummary).toLowerCase()}\n${result.text}`;
+function formatReasoningStatus(reasoningSummary: string): string {
+  return `> 💭 ${stripBoldMarkdown(reasoningSummary).toLowerCase()}`;
 }
 
 function stripBoldMarkdown(text: string): string {

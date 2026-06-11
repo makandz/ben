@@ -15,6 +15,11 @@ export const modelPricing: Record<string, ModelPricing> = {
     cachedInputUsdPer1M: 0.075,
     outputUsdPer1M: 4.5,
   },
+  "gpt-5.4-nano": {
+    inputUsdPer1M: 0.2,
+    cachedInputUsdPer1M: 0.02,
+    outputUsdPer1M: 1.25,
+  },
 };
 
 export function getModelPricing(model: string): ModelPricing {

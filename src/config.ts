@@ -8,14 +8,18 @@ export interface AppConfig {
   discordToken: string;
   openaiApiKey: string;
   openaiModel: string;
+  openaiInternalModel: string;
   openaiDailyBudgetUsd: number;
   openaiUsageLogDir: string;
+  internalStatePath: string;
+  discordLogChannelId: string | undefined;
   knownPeople: Record<string, KnownPerson>;
   logLevel: LogLevel;
   logPrompts: boolean;
   debounceMs: number;
   idleSleepMs: number;
   messageLineDelayMs: number;
+  internalActionIntervalMs: number;
 }
 
 const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -116,13 +120,17 @@ export function loadConfig(): AppConfig {
     discordToken: requireEnv("DISCORD_TOKEN"),
     openaiApiKey: requireEnv("OPENAI_API_KEY"),
     openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    openaiInternalModel: process.env.OPENAI_INTERNAL_MODEL ?? "gpt-5.4-nano",
     openaiDailyBudgetUsd: readNumberEnv("OPENAI_DAILY_BUDGET_USD", 0),
     openaiUsageLogDir: process.env.OPENAI_USAGE_LOG_DIR ?? "logs/openai-usage",
+    internalStatePath: process.env.BOT_INTERNAL_STATE_PATH ?? "logs/internal-state.json",
+    discordLogChannelId: process.env.DISCORD_LOG_CHANNEL_ID,
     knownPeople: readKnownPeople(),
     logLevel: readLogLevel(),
     logPrompts: process.env.LOG_PROMPTS === "true",
     debounceMs: readNumberEnv("BOT_DEBOUNCE_MS", 3_000),
     idleSleepMs: readNumberEnv("BOT_IDLE_SLEEP_MS", 10 * 60 * 1_000),
     messageLineDelayMs: readNumberEnv("BOT_MESSAGE_LINE_DELAY_MS", 1_000),
+    internalActionIntervalMs: readNumberEnv("BOT_INTERNAL_ACTION_INTERVAL_MS", 24 * 60 * 60 * 1_000),
   };
 }

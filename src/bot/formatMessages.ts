@@ -43,6 +43,7 @@ export function buildUserPrompt(options: {
   messages: readonly HumanMessage[];
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
+  currentActivityStatus?: string;
 }): string {
   const sections: string[] = [];
   const knownPeople = options.knownPeople ?? {};
@@ -53,6 +54,10 @@ export function buildUserPrompt(options: {
     if (knownPeopleText.length > 0) {
       sections.push(`Known people:\n${knownPeopleText}`);
     }
+  }
+
+  if (options.currentActivityStatus !== undefined) {
+    sections.push(`Ben's current activity status is "${options.currentActivityStatus}".`);
   }
 
   if (options.recentContext.length > 0) {
