@@ -13,6 +13,7 @@ export class InternalActionScheduler {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
   private currentStatus: InternalStatus | undefined;
+  private presenceStatus: "idle" | "online" = "idle";
 
   constructor(
     private readonly config: AppConfig,
@@ -44,6 +45,17 @@ export class InternalActionScheduler {
     }
 
     return formatActivityStatus(this.currentStatus);
+  }
+
+  setAwakePresence(awake: boolean): void {
+    this.presenceStatus = awake ? "online" : "idle";
+
+    if (this.currentStatus === undefined) {
+      this.client.user?.setPresence({ status: this.presenceStatus });
+      return;
+    }
+
+    this.applyStatus(this.currentStatus);
   }
 
   private async startStatusSchedule(): Promise<void> {
@@ -135,7 +147,7 @@ export class InternalActionScheduler {
   private applyStatus(status: InternalStatus): void {
     this.currentStatus = status;
     this.client.user?.setPresence({
-      status: "online",
+      status: this.presenceStatus,
       activities: [
         {
           name: "custom",

@@ -118,6 +118,9 @@ const session = new BotSession(
     await message.react(emoji);
   },
   () => internalActionScheduler.getCurrentActivityStatus(),
+  (awake) => {
+    internalActionScheduler.setAwakePresence(awake);
+  },
   conversationSummaryStore,
   logger,
 );
@@ -125,6 +128,7 @@ const session = new BotSession(
 client.once(Events.ClientReady, (readyClient) => {
   mentionDirectory.rememberUser(readyClient.user);
   logger.info("discord.ready", { user: readyClient.user.tag });
+  internalActionScheduler.setAwakePresence(false);
   internalActionScheduler.start();
   void registerUsageCommand(readyClient, logger).catch((error: unknown) => {
     logger.warn("discord.command_registration_failed", { error: String(error) });

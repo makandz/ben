@@ -11,6 +11,7 @@ type SendStatusMessage = (text: string, fallbackChannelId: string | undefined) =
 type SendTypingToChannel = (channelId: string) => Promise<void>;
 type ReactToMessage = (channelId: string, messageId: string, emoji: string) => Promise<void>;
 type GetCurrentActivityStatus = () => string | undefined;
+type SetAwakePresence = (awake: boolean) => void;
 
 interface TypingActivity {
   expiresAt: number;
@@ -36,6 +37,7 @@ export class BotSession {
     private readonly sendTyping: SendTypingToChannel,
     private readonly reactToMessage: ReactToMessage,
     private readonly getCurrentActivityStatus: GetCurrentActivityStatus,
+    private readonly setAwakePresence: SetAwakePresence,
     private readonly conversationSummaryStore: ConversationSummaryStore,
     private readonly logger: Logger,
   ) {}
@@ -112,6 +114,7 @@ export class BotSession {
 
   private wake(message: HumanMessage, recentContext: HumanMessage[]): void {
     this.mode = "awake";
+    this.setAwakePresence(true);
     this.pendingBatch = [message];
     this.recentContextForPendingBatch = recentContext;
     this.apiMemory = [];
@@ -521,6 +524,7 @@ export class BotSession {
     }
 
     this.mode = "sleeping";
+    this.setAwakePresence(false);
     this.pendingBatch = [];
     this.queuedWhileProcessing = [];
     this.apiMemory = [];
