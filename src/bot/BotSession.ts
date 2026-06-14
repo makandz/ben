@@ -2,6 +2,7 @@ import type { AppConfig } from "../config.js";
 import type { Logger } from "../logger.js";
 import type { OpenAIResponder } from "../openai/responder.js";
 import type { ApiMemory, ResponderResult } from "../openai/types.js";
+import type { ConversationSummaryStore } from "./conversationSummaryStore.js";
 import { buildUserPrompt } from "./formatMessages.js";
 import type { BotMode, HumanMessage } from "./types.js";
 
@@ -11,6 +12,10 @@ type SendTypingToChannel = (channelId: string) => Promise<void>;
 type ReactToMessage = (channelId: string, messageId: string, emoji: string) => Promise<void>;
 type GetCurrentActivityStatus = () => string | undefined;
 
+interface TypingActivity {
+  expiresAt: number;
+}
+
 export class BotSession {
   private mode: BotMode = "sleeping";
   private sleepFifo: HumanMessage[] = [];
@@ -18,7 +23,8 @@ export class BotSession {
   private queuedWhileProcessing: HumanMessage[] = [];
   private apiMemory: ApiMemory = [];
   private recentContextForPendingBatch: HumanMessage[] = [];
-  private channelLastActivityAt = new Map<string, number>();
+  private channelLastMessageAt = new Map<string, number>();
+  private channelTypingByUser = new Map<string, Map<string, TypingActivity>>();
   private debounceTimer: NodeJS.Timeout | undefined;
   private idleSleepTimer: NodeJS.Timeout | undefined;
 
@@ -30,11 +36,12 @@ export class BotSession {
     private readonly sendTyping: SendTypingToChannel,
     private readonly reactToMessage: ReactToMessage,
     private readonly getCurrentActivityStatus: GetCurrentActivityStatus,
+    private readonly conversationSummaryStore: ConversationSummaryStore,
     private readonly logger: Logger,
   ) {}
 
   handleMessage(message: HumanMessage, ping: boolean): void {
-    this.markChannelActivity(message.channelId);
+    this.markMessageActivity(message);
 
     if (this.mode === "sleeping") {
       const recentContext = [...this.sleepFifo];
@@ -74,19 +81,26 @@ export class BotSession {
     this.resetIdleSleepTimer();
   }
 
-  handleTyping(channelId: string, username: string): void {
+  handleTyping(channelId: string, userId: string, username: string): void {
     if (this.mode === "sleeping") {
       return;
     }
 
-    this.markChannelActivity(channelId);
+    this.markTypingActivity(channelId, userId, username);
 
     if (this.mode === "processing") {
       this.logger.debug("typing.processing", { channelId, username });
       return;
     }
 
-    if (channelId !== this.pendingBatch[0]?.channelId) {
+    const pendingChannelId = this.pendingBatch[0]?.channelId;
+
+    if (pendingChannelId === undefined) {
+      this.logger.debug("typing.tracked_idle", { channelId, username });
+      return;
+    }
+
+    if (channelId !== pendingChannelId) {
       this.logger.debug("typing.ignored_other_channel", { channelId, username });
       return;
     }
@@ -108,25 +122,110 @@ export class BotSession {
       contextCount: recentContext.length,
     });
 
-    void this.sendStatusMessage("> 👋 woke up..", message.channelId);
+    void this.sendStatusMessage("Woke up from a ping", message.channelId);
     this.scheduleDebounce();
     this.resetIdleSleepTimer();
   }
 
   private scheduleDebounce(): void {
+    const channelId = this.pendingBatch[0]?.channelId;
+
+    if (channelId === undefined) {
+      return;
+    }
+
     if (this.debounceTimer !== undefined) {
       clearTimeout(this.debounceTimer);
     }
 
+    const now = Date.now();
+    const dueAt = this.getDebounceDueAt(channelId, now);
+    const delayMs = Math.max(0, dueAt - now);
+
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       this.processPendingBatchIfIdle();
-    }, this.config.debounceMs);
+    }, delayMs);
 
     this.logger.debug("debounce.scheduled", {
-      delayMs: this.config.debounceMs,
+      channelId,
+      delayMs,
       pending: this.pendingBatch.length,
+      activeTypingUsers: this.getActiveTypingCount(channelId, now),
     });
+  }
+
+  private getDebounceDueAt(channelId: string, now: number): number {
+    const lastMessageAt = this.channelLastMessageAt.get(channelId) ?? now;
+    const activeTyping = this.getActiveTyping(channelId, now);
+
+    return Math.max(
+      lastMessageAt + this.config.messageDebounceMs,
+      ...activeTyping.map((activity) => activity.expiresAt),
+    );
+  }
+
+  private getActiveTypingCount(channelId: string, now: number): number {
+    return this.getActiveTyping(channelId, now).length;
+  }
+
+  private getActiveTyping(channelId: string, now: number): TypingActivity[] {
+    const typingByUser = this.channelTypingByUser.get(channelId);
+
+    if (typingByUser === undefined) {
+      return [];
+    }
+
+    const activeTyping: TypingActivity[] = [];
+
+    for (const [userId, activity] of typingByUser.entries()) {
+      if (activity.expiresAt <= now) {
+        typingByUser.delete(userId);
+        continue;
+      }
+
+      activeTyping.push(activity);
+    }
+
+    if (typingByUser.size === 0) {
+      this.channelTypingByUser.delete(channelId);
+    }
+
+    return activeTyping;
+  }
+
+  private markTypingActivity(channelId: string, userId: string, username: string): void {
+    const typingByUser = this.channelTypingByUser.get(channelId) ?? new Map<string, TypingActivity>();
+    const expiresAt = Date.now() + this.config.typingDebounceMs;
+
+    typingByUser.set(userId, { expiresAt });
+    this.channelTypingByUser.set(channelId, typingByUser);
+
+    this.logger.debug("typing.tracked", {
+      channelId,
+      username,
+      activeTypingUsers: typingByUser.size,
+      expiresInMs: this.config.typingDebounceMs,
+    });
+  }
+
+  private markMessageActivity(message: HumanMessage): void {
+    this.channelLastMessageAt.set(message.channelId, Date.now());
+    this.clearTypingActivity(message.channelId, message.userId);
+  }
+
+  private clearTypingActivity(channelId: string, userId: string): void {
+    const typingByUser = this.channelTypingByUser.get(channelId);
+
+    if (typingByUser === undefined) {
+      return;
+    }
+
+    typingByUser.delete(userId);
+
+    if (typingByUser.size === 0) {
+      this.channelTypingByUser.delete(channelId);
+    }
   }
 
   private processPendingBatchIfIdle(): void {
@@ -137,29 +236,26 @@ export class BotSession {
       return;
     }
 
-    const lastActivityAt = this.channelLastActivityAt.get(channelId) ?? 0;
-    const idleForMs = Date.now() - lastActivityAt;
+    const now = Date.now();
+    const dueAt = this.getDebounceDueAt(channelId, now);
 
-    if (idleForMs < this.config.debounceMs) {
+    if (dueAt > now) {
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = undefined;
         this.processPendingBatchIfIdle();
-      }, this.config.debounceMs - idleForMs);
+      }, dueAt - now);
 
       this.logger.debug("debounce.waiting_for_idle", {
         channelId,
-        idleForMs,
-        remainingMs: this.config.debounceMs - idleForMs,
+        remainingMs: dueAt - now,
+        messageDebounceMs: this.config.messageDebounceMs,
+        activeTypingUsers: this.getActiveTypingCount(channelId, now),
         pending: this.pendingBatch.length,
       });
       return;
     }
 
     void this.processPendingBatch();
-  }
-
-  private markChannelActivity(channelId: string): void {
-    this.channelLastActivityAt.set(channelId, Date.now());
   }
 
   private resetIdleSleepTimer(): void {
@@ -188,15 +284,23 @@ export class BotSession {
     const currentActivityStatus = includeFirstPromptContext
       ? this.getCurrentActivityStatus()
       : undefined;
+    const recentConversationSummaries = includeFirstPromptContext
+      ? await this.conversationSummaryStore.list()
+      : [];
     const promptOptions: Parameters<typeof buildUserPrompt>[0] = {
       recentContext,
       messages,
       knownPeople: this.config.knownPeople,
       includeKnownPeople: includeFirstPromptContext,
+      recentConversationSummaries,
     };
 
     if (currentActivityStatus !== undefined) {
       promptOptions.currentActivityStatus = currentActivityStatus;
+    }
+
+    if (includeFirstPromptContext && messages[0] !== undefined) {
+      promptOptions.pingedByUsername = messages[0].username;
     }
 
     const userPrompt = buildUserPrompt(promptOptions);
@@ -248,7 +352,36 @@ export class BotSession {
     reactionTargetMessageId: string | undefined,
   ): Promise<void> {
     if (result.type === "sleep") {
-      await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
+      if (result.reactionEmoji !== undefined) {
+        await this.reactToLatestMessage(responseChannelId, reactionTargetMessageId, result.reactionEmoji)
+          .then(() => {
+            this.logger.info("discord.reacted", { emoji: result.reactionEmoji });
+          })
+          .catch((error: unknown) => {
+            this.logger.warn("discord.react_failed", { error: String(error) });
+          });
+      }
+
+      if (result.text !== undefined) {
+        if (responseChannelId === undefined) {
+          this.logger.warn("discord.send_failed", {
+            error: "Cannot send a response without a channel ID.",
+          });
+        } else {
+          await this.sendMessage(responseChannelId, result.text)
+            .then(() => {
+              this.logger.info("discord.sent", { chars: result.text?.length ?? 0 });
+            })
+            .catch((error: unknown) => {
+              this.logger.warn("discord.send_failed", { error: String(error) });
+            });
+        }
+      }
+
+      await this.conversationSummaryStore.add(result.summary).catch((error: unknown) => {
+        this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
+      });
+      await this.sendStatusMessage("Going back to sleep", responseChannelId);
       this.goToSleep("model_na");
       return;
     }
@@ -257,6 +390,20 @@ export class BotSession {
       try {
         if (responseChannelId === undefined) {
           throw new Error("Cannot send a response without a channel ID.");
+        }
+
+        if (result.reactionEmoji !== undefined) {
+          await this.reactToLatestMessage(
+            responseChannelId,
+            reactionTargetMessageId,
+            result.reactionEmoji,
+          )
+            .then(() => {
+              this.logger.info("discord.reacted", { emoji: result.reactionEmoji });
+            })
+            .catch((error: unknown) => {
+              this.logger.warn("discord.react_failed", { error: String(error) });
+            });
         }
 
         if (result.reasoningSummary !== undefined) {
@@ -278,21 +425,11 @@ export class BotSession {
       } catch (error) {
         this.logger.warn("discord.send_failed", { error: String(error) });
       }
-
-      if (result.sleepAfter === true) {
-        await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
-        this.goToSleep("model_sleep_command");
-        return;
-      }
     }
 
     if (result.type === "reaction") {
       try {
-        if (responseChannelId === undefined || reactionTargetMessageId === undefined) {
-          throw new Error("Cannot react without a channel ID and target message ID.");
-        }
-
-        await this.reactToMessage(responseChannelId, reactionTargetMessageId, result.emoji);
+        await this.reactToLatestMessage(responseChannelId, reactionTargetMessageId, result.emoji);
         this.apiMemory = [...this.apiMemory, ...result.memoryItems];
         this.logger.info("discord.reacted", {
           emoji: result.emoji,
@@ -301,16 +438,10 @@ export class BotSession {
       } catch (error) {
         this.logger.warn("discord.react_failed", { error: String(error) });
       }
-
-      if (result.sleepAfter === true) {
-        await this.sendStatusMessage("> 💤 sleeping..", responseChannelId);
-        this.goToSleep("model_sleep_command");
-        return;
-      }
     }
 
     if (result.type === "wait") {
-      await this.sendStatusMessage("> ⏳ waiting..", responseChannelId);
+      await this.sendStatusMessage("Waiting for the next message..", responseChannelId);
       this.apiMemory = [...this.apiMemory, ...result.memoryItems];
       this.logger.info("mode.wait", {
         queued: this.queuedWhileProcessing.length,
@@ -366,6 +497,18 @@ export class BotSession {
     });
   }
 
+  private async reactToLatestMessage(
+    channelId: string | undefined,
+    messageId: string | undefined,
+    emoji: string,
+  ): Promise<void> {
+    if (channelId === undefined || messageId === undefined) {
+      throw new Error("Cannot react without a channel ID and target message ID.");
+    }
+
+    await this.reactToMessage(channelId, messageId, emoji);
+  }
+
   private goToSleep(reason: string): void {
     if (this.debounceTimer !== undefined) {
       clearTimeout(this.debounceTimer);
@@ -382,6 +525,7 @@ export class BotSession {
     this.queuedWhileProcessing = [];
     this.apiMemory = [];
     this.recentContextForPendingBatch = [];
+    this.channelTypingByUser.clear();
 
     this.logger.info("mode.sleep", {
       reason,
@@ -399,7 +543,7 @@ export class BotSession {
 }
 
 function formatReasoningStatus(reasoningSummary: string): string {
-  return `> 💭 ${stripBoldMarkdown(reasoningSummary).toLowerCase()}`;
+  return `> 💭 ${stripBoldMarkdown(reasoningSummary)}`;
 }
 
 function stripBoldMarkdown(text: string): string {

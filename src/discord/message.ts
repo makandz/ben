@@ -17,6 +17,7 @@ export function toHumanMessage(
   return {
     id: message.id,
     channelId: message.channelId,
+    userId: message.author.id,
     username: message.author.username,
     content: mentionDirectory.convertMentionsToUsernames(message.content),
     createdAt: message.createdTimestamp,

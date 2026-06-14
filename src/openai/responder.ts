@@ -28,11 +28,11 @@ export class OpenAIResponder {
 
   async respond(userPrompt: string, memory: ApiMemory): Promise<ResponderResult> {
     const userItem = createUserMessageItem(userPrompt);
-    const input: ResponseInputItem[] = [...memory, userItem];
+    const turnItems: ResponseInputItem[] = [userItem];
     const instructions = await loadSystemPrompt(this.logger);
 
     this.logger.info("openai.request", {
-      inputItems: input.length,
+      inputItems: memory.length + turnItems.length,
       memoryItems: memory.length,
       promptChars: userPrompt.length,
       model: this.config.openaiModel,
@@ -59,12 +59,13 @@ export class OpenAIResponder {
         };
       }
 
+      const input: ResponseInputItem[] = [...memory, ...turnItems];
       const response = await this.client.responses.create({
         model: this.config.openaiModel,
         instructions,
         input,
         tools: botControlTools,
-        tool_choice: "auto",
+        tool_choice: "required",
         max_output_tokens: 512,
         reasoning: { effort: "low", summary: "concise" },
         include: ["reasoning.encrypted_content"],
@@ -89,87 +90,70 @@ export class OpenAIResponder {
 
       this.logger.info("openai.raw_response", { text: response.output_text });
 
-      const text = response.output_text.trim();
-      const command = parseToolCommand(response.output);
       const reasoningSummary = extractReasoningSummary(response.output);
-      const memoryItems = [
-        userItem,
-        ...createMemoryItems(response.output, command.toolCalls),
-      ];
+      turnItems.push(...(stripReasoningSummaries(response.output) as ResponseInputItem[]));
 
-      if (text === "N/A") {
-        this.logger.info("openai.response", { action: "sleep_na" });
-        return { type: "sleep" };
-      }
+      const toolCalls = response.output.filter(isBotControlToolCall);
 
-      if (command.reactionEmoji !== undefined && text.length === 0) {
-        this.logger.info("openai.response", {
-          action: command.sleep ? "reaction_sleep_command" : "reaction",
-          emoji: command.reactionEmoji,
-          memoryItems: memoryItems.length,
-        });
-
-        const result: ResponderResult = {
-          type: "reaction",
-          emoji: command.reactionEmoji,
-          memoryItems,
-        };
-
-        if (command.sleep) {
-          result.sleepAfter = true;
-        }
-
-        return result;
-      }
-
-      if (command.invalidReaction && text.length === 0 && !command.sleep) {
-        this.logger.warn("openai.invalid_reaction_ignored", {
-          memoryItems: memoryItems.length,
-        });
+      if (toolCalls.length !== 1) {
+        this.logger.warn("openai.invalid_tool_call_count", { count: toolCalls.length });
+        turnItems.push(
+          ...toolCalls.map((toolCall) =>
+            createFunctionCallOutput(toolCall, {
+              ok: false,
+              error: "expected exactly one tool call",
+            }),
+          ),
+        );
         return {
           type: "wait",
-          memoryItems,
+          memoryItems: turnItems,
         };
       }
 
-      if (command.sleep && text.length === 0) {
-        this.logger.info("openai.response", { action: "sleep_command" });
-        return { type: "sleep" };
+      const toolCall = toolCalls[0];
+
+      if (toolCall === undefined) {
+        return {
+          type: "wait",
+          memoryItems: turnItems,
+        };
       }
 
-      if (command.wait && text.length === 0) {
+      if (toolCall.name === "send_message") {
+        return createSendMessageResult(
+          toolCall,
+          turnItems,
+          reasoningSummary,
+          response.output.length,
+          this.logger,
+        );
+      }
+
+      if (toolCall.name === "wait_for_more_messages") {
+        turnItems.push(
+          createFunctionCallOutput(toolCall, {
+            ok: true,
+            paused_until: "new_human_message",
+          }),
+        );
         this.logger.info("openai.response", {
           action: "wait_command",
-          memoryItems: memoryItems.length,
+          memoryItems: turnItems.length,
         });
         return {
           type: "wait",
-          memoryItems,
+          memoryItems: turnItems,
         };
       }
 
-      this.logger.info("openai.response", {
-        action: command.sleep ? "message_sleep_command" : "message",
-        chars: text.length,
-        reasoningSummaryChars: reasoningSummary?.length ?? 0,
-        outputItems: response.output.length,
-      });
-
-      const result: ResponderResult = {
-        type: "message",
-        text,
-        memoryItems,
-      };
-
-      if (command.sleep) {
-        result.sleepAfter = true;
-      }
-
-      if (reasoningSummary !== undefined) {
-        result.reasoningSummary = reasoningSummary;
-      }
-
-      return result;
+      return createSleepResult(
+        toolCall,
+        turnItems,
+        reasoningSummary,
+        response.output.length,
+        this.logger,
+      );
     } catch (error) {
       this.logger.warn("openai.failed", { error: String(error) });
       return { type: "failed", error };
@@ -180,27 +164,33 @@ export class OpenAIResponder {
 const botControlTools = [
   {
     type: "function",
-    name: "react_to_message",
+    name: "send_message",
     description:
-      "React to the latest new human message with exactly one standard Unicode emoji instead of sending a text response.",
+      "Terminal action. Send a Discord message and/or react to the latest new human message as Ben. After this action, execution pauses until new human messages arrive.",
     strict: true,
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        emoji: {
-          type: "string",
-          description: "Exactly one standard Unicode emoji.",
+        text: {
+          type: ["string", "null"],
+          description:
+            "The Discord message to send. Keep it short, lowercase, and natural. Use null when only reacting.",
+        },
+        reaction: {
+          type: ["string", "null"],
+          description:
+            "Exactly one standard Unicode emoji to react with, or null when only sending a message.",
         },
       },
-      required: ["emoji"],
+      required: ["text", "reaction"],
     },
   },
   {
     type: "function",
     name: "wait_for_more_messages",
     description:
-      "Stay awake and wait for follow-up messages without sending a text response.",
+      "Terminal action. Stay awake and wait for follow-up messages without sending a text response. Execution pauses until new human messages arrive.",
     strict: true,
     parameters: {
       type: "object",
@@ -213,75 +203,47 @@ const botControlTools = [
     type: "function",
     name: "sleep_conversation",
     description:
-      "Go back to sleep because the bot is no longer needed in the current conversation.",
+      "Terminal action. Optionally send a final Discord message and/or react to the latest new human message, then go back to sleep because Ben is no longer needed. Conversation context is cleared and execution stops until Ben is pinged again.",
     strict: true,
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: {},
-      required: [],
+      properties: {
+        text: {
+          type: ["string", "null"],
+          description:
+            "Optional final Discord message to send before sleeping. Keep it short, lowercase, and natural. Use null when not sending a final message.",
+        },
+        reaction: {
+          type: ["string", "null"],
+          description:
+            "Optional final reaction: exactly one standard Unicode emoji to react with before sleeping, or null when not reacting.",
+        },
+        summary: {
+          type: "string",
+          description:
+            "Required 1-2 sentence summary of the conversation Ben just had. This is stored for future wake-ups, so keep it factual and concise.",
+        },
+      },
+      required: ["text", "reaction", "summary"],
     },
   },
 ] satisfies Tool[];
 
-function parseToolCommand(output: ResponseOutputItem[]): {
-  sleep: boolean;
-  wait: boolean;
-  reactionEmoji?: string;
-  invalidReaction: boolean;
-  toolCalls: ResponseFunctionToolCall[];
+type BotControlToolName =
+  | "send_message"
+  | "wait_for_more_messages"
+  | "sleep_conversation";
+
+function isBotControlToolCall(item: ResponseOutputItem): item is ResponseFunctionToolCall & {
+  name: BotControlToolName;
 } {
-  let sleep = false;
-  let wait = false;
-  let reactionEmoji: string | undefined;
-  let invalidReaction = false;
-  const toolCalls: ResponseFunctionToolCall[] = [];
-
-  for (const item of output) {
-    if (item.type !== "function_call") {
-      continue;
-    }
-
-    if (!isBotControlToolName(item.name)) {
-      continue;
-    }
-
-    toolCalls.push(item);
-
-    if (item.name === "sleep_conversation") {
-      sleep = true;
-      continue;
-    }
-
-    if (item.name === "wait_for_more_messages") {
-      wait = true;
-      continue;
-    }
-
-    const args = parseFunctionArguments(item.arguments);
-    const emoji = typeof args.emoji === "string" ? args.emoji.trim() : "";
-
-    if (reactionEmoji === undefined && isSingleUnicodeEmoji(emoji)) {
-      reactionEmoji = emoji;
-    } else {
-      invalidReaction = true;
-    }
-  }
-
-  const command = { sleep, wait, invalidReaction, toolCalls };
-
-  if (reactionEmoji === undefined) {
-    return command;
-  }
-
-  return { ...command, reactionEmoji };
+  return item.type === "function_call" && isBotControlToolName(item.name);
 }
 
-function isBotControlToolName(
-  name: string,
-): name is "react_to_message" | "wait_for_more_messages" | "sleep_conversation" {
+function isBotControlToolName(name: string): name is BotControlToolName {
   return (
-    name === "react_to_message" ||
+    name === "send_message" ||
     name === "wait_for_more_messages" ||
     name === "sleep_conversation"
   );
@@ -299,6 +261,173 @@ function parseFunctionArguments(args: string): Record<string, unknown> {
   }
 
   return {};
+}
+
+function createSendMessageResult(
+  toolCall: ResponseFunctionToolCall,
+  turnItems: ResponseInputItem[],
+  reasoningSummary: string | undefined,
+  outputItemCount: number,
+  logger: Logger,
+): ResponderResult {
+  const action = parseMessageAction(toolCall);
+
+  if (action.reaction.length > 0 && !isSingleUnicodeEmoji(action.reaction)) {
+    logger.warn("openai.invalid_send_message_reaction", { reaction: action.reaction });
+    turnItems.push(
+      createFunctionCallOutput(toolCall, {
+        ok: false,
+        error: "send_message reaction must be null or exactly one standard Unicode emoji",
+      }),
+    );
+    return {
+      type: "wait",
+      memoryItems: turnItems,
+    };
+  }
+
+  if (action.text.length === 0 && action.reaction.length === 0) {
+    logger.warn("openai.empty_send_message");
+    turnItems.push(
+      createFunctionCallOutput(toolCall, {
+        ok: false,
+        error: "send_message requires text, reaction, or both",
+      }),
+    );
+    return {
+      type: "wait",
+      memoryItems: turnItems,
+    };
+  }
+
+  turnItems.push(
+    createFunctionCallOutput(toolCall, {
+      ok: true,
+      paused_until: "new_human_message",
+    }),
+  );
+
+  logger.info("openai.response", {
+    action: action.text.length > 0 ? "message" : "reaction",
+    chars: action.text.length,
+    reaction: action.reaction.length > 0 ? action.reaction : undefined,
+    reasoningSummaryChars: reasoningSummary?.length ?? 0,
+    outputItems: outputItemCount,
+  });
+
+  if (action.text.length === 0) {
+    const result: ResponderResult = {
+      type: "reaction",
+      emoji: action.reaction,
+      memoryItems: turnItems,
+    };
+
+    if (reasoningSummary !== undefined) {
+      result.reasoningSummary = reasoningSummary;
+    }
+
+    return result;
+  }
+
+  const result: ResponderResult = {
+    type: "message",
+    text: action.text,
+    memoryItems: turnItems,
+  };
+
+  if (action.reaction.length > 0) {
+    result.reactionEmoji = action.reaction;
+  }
+
+  if (reasoningSummary !== undefined) {
+    result.reasoningSummary = reasoningSummary;
+  }
+
+  return result;
+}
+
+function createSleepResult(
+  toolCall: ResponseFunctionToolCall,
+  turnItems: ResponseInputItem[],
+  reasoningSummary: string | undefined,
+  outputItemCount: number,
+  logger: Logger,
+): ResponderResult {
+  const action = parseMessageAction(toolCall);
+  const summary = parseSleepSummary(toolCall);
+
+  if (summary.length === 0) {
+    logger.warn("openai.empty_sleep_summary");
+    turnItems.push(
+      createFunctionCallOutput(toolCall, {
+        ok: false,
+        error: "sleep_conversation requires a non-empty 1-2 sentence summary",
+      }),
+    );
+    return {
+      type: "wait",
+      memoryItems: turnItems,
+    };
+  }
+
+  if (action.reaction.length > 0 && !isSingleUnicodeEmoji(action.reaction)) {
+    logger.warn("openai.invalid_sleep_reaction", { reaction: action.reaction });
+    turnItems.push(
+      createFunctionCallOutput(toolCall, {
+        ok: false,
+        error: "sleep_conversation reaction must be null or exactly one standard Unicode emoji",
+      }),
+    );
+    return {
+      type: "wait",
+      memoryItems: turnItems,
+    };
+  }
+
+  turnItems.push(
+    createFunctionCallOutput(toolCall, {
+      ok: true,
+      paused_until: "ping_after_sleep",
+    }),
+  );
+
+  logger.info("openai.response", {
+    action: "sleep_command",
+    chars: action.text.length,
+    reaction: action.reaction.length > 0 ? action.reaction : undefined,
+    reasoningSummaryChars: reasoningSummary?.length ?? 0,
+    outputItems: outputItemCount,
+  });
+
+  const result: ResponderResult = { type: "sleep", summary };
+
+  if (action.text.length > 0) {
+    result.text = action.text;
+  }
+
+  if (action.reaction.length > 0) {
+    result.reactionEmoji = action.reaction;
+  }
+
+  return result;
+}
+
+function parseMessageAction(toolCall: ResponseFunctionToolCall): {
+  text: string;
+  reaction: string;
+} {
+  const args = parseFunctionArguments(toolCall.arguments);
+
+  return {
+    text: typeof args.text === "string" ? args.text.trim() : "",
+    reaction: typeof args.reaction === "string" ? args.reaction.trim() : "",
+  };
+}
+
+function parseSleepSummary(toolCall: ResponseFunctionToolCall): string {
+  const args = parseFunctionArguments(toolCall.arguments);
+
+  return typeof args.summary === "string" ? args.summary.trim() : "";
 }
 
 function isSingleUnicodeEmoji(value: string): boolean {
@@ -332,20 +461,15 @@ function stripReasoningSummaries(output: ResponseOutputItem[]): ResponseOutputIt
   });
 }
 
-function createMemoryItems(
-  output: ResponseOutputItem[],
-  toolCalls: readonly ResponseFunctionToolCall[],
-): ResponseInputItem[] {
-  const strippedOutput = stripReasoningSummaries(output) as ResponseInputItem[];
-
-  return [
-    ...strippedOutput,
-    ...toolCalls.map((toolCall) => ({
-      type: "function_call_output" as const,
-      call_id: toolCall.call_id,
-      output: JSON.stringify({ ok: true }),
-    })),
-  ];
+function createFunctionCallOutput(
+  toolCall: ResponseFunctionToolCall,
+  output: Record<string, unknown>,
+): ResponseInputItem {
+  return {
+    type: "function_call_output",
+    call_id: toolCall.call_id,
+    output: JSON.stringify(output),
+  };
 }
 
 function createUserMessageItem(text: string): ResponseInputItem {

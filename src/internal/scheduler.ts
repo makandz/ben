@@ -158,7 +158,7 @@ export class InternalActionScheduler {
   }
 
   private async writeThoughtBubble(text: string): Promise<void> {
-    const visibleText = stripBoldMarkdown(text).toLowerCase();
+    const visibleText = stripBoldMarkdown(text);
 
     if (visibleText.length === 0) {
       return;

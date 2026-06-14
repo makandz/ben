@@ -65,7 +65,8 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 - `KNOWN_PEOPLE` maps Discord usernames to real names in prompts, for example `{"makandz":"Makan"}`. Known users are shown as `makandz (Makan): ...`; unknown users stay as `username: ...`.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
 - `LOG_PROMPTS=true` logs full prompts at debug level.
-- `BOT_DEBOUNCE_MS` defaults to `3000`.
+- `BOT_MESSAGE_DEBOUNCE_MS` defaults to `5000`. After the latest human message, the bot waits this long before calling OpenAI.
+- `BOT_TYPING_DEBOUNCE_MS` defaults to `10000`. Each Discord typing indicator keeps that user active for this long unless they send a message first.
 - `BOT_IDLE_SLEEP_MS` defaults to `600000`.
 - `BOT_MESSAGE_LINE_DELAY_MS` defaults to `1000`; multi-line bot replies are sent one line at a time with this delay before each next line.
 - `BOT_INTERNAL_ACTION_INTERVAL_MS` defaults to `86400000`.

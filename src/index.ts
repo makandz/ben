@@ -3,6 +3,7 @@ import "dotenv/config";
 import { Events, type GuildMember } from "discord.js";
 
 import { BotSession } from "./bot/BotSession.js";
+import { ConversationSummaryStore } from "./bot/conversationSummaryStore.js";
 import { loadConfig } from "./config.js";
 import { createDiscordClient } from "./discord/client.js";
 import { isPing, toHumanMessage } from "./discord/message.js";
@@ -19,6 +20,10 @@ const config = loadConfig();
 const logger = new Logger(config.logLevel);
 const client = createDiscordClient();
 const usageStore = new OpenAIUsageStore(config, logger);
+const conversationSummaryStore = new ConversationSummaryStore(
+  config.conversationSummaryPath,
+  logger,
+);
 const responder = new OpenAIResponder(config, logger, usageStore);
 const internalActionRunner = new InternalActionRunner(config, logger, usageStore);
 const internalStateStore = new InternalStateStore(config.internalStatePath, logger);
@@ -113,6 +118,7 @@ const session = new BotSession(
     await message.react(emoji);
   },
   () => internalActionScheduler.getCurrentActivityStatus(),
+  conversationSummaryStore,
   logger,
 );
 
@@ -143,7 +149,7 @@ client.on(Events.TypingStart, (typing) => {
   }
 
   mentionDirectory.rememberUser(user);
-  session.handleTyping(typing.channel.id, user.username);
+  session.handleTyping(typing.channel.id, user.id, user.username);
 });
 
 client.on(Events.InteractionCreate, (interaction) => {

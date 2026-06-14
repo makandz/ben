@@ -1,4 +1,5 @@
 import type { HumanMessage } from "./types.js";
+import type { ConversationSummary } from "./conversationSummaryStore.js";
 import type { KnownPerson } from "../config.js";
 
 type KnownPeople = Readonly<Record<string, KnownPerson>>;
@@ -44,6 +45,8 @@ export function buildUserPrompt(options: {
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
   currentActivityStatus?: string;
+  pingedByUsername?: string;
+  recentConversationSummaries?: readonly ConversationSummary[];
 }): string {
   const sections: string[] = [];
   const knownPeople = options.knownPeople ?? {};
@@ -58,6 +61,19 @@ export function buildUserPrompt(options: {
 
   if (options.currentActivityStatus !== undefined) {
     sections.push(`Ben's current activity status is "${options.currentActivityStatus}".`);
+  }
+
+  if (options.pingedByUsername !== undefined) {
+    sections.push(`Ben was pinged by ${formatSpeaker(options.pingedByUsername, knownPeople)}.`);
+  }
+
+  if (
+    options.recentConversationSummaries !== undefined &&
+    options.recentConversationSummaries.length > 0
+  ) {
+    sections.push(
+      `Recent conversations:\n${formatConversationSummaries(options.recentConversationSummaries)}`,
+    );
   }
 
   if (options.recentContext.length > 0) {
@@ -79,5 +95,11 @@ function formatKnownPeople(knownPeople: KnownPeople): string {
   return Object.entries(knownPeople)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([username, person]) => `- ${username} is ${person.name}`)
+    .join("\n");
+}
+
+function formatConversationSummaries(conversations: readonly ConversationSummary[]): string {
+  return conversations
+    .map((conversation) => `- ${conversation.summary}`)
     .join("\n");
 }

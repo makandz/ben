@@ -6,15 +6,15 @@ export type ResponderResult =
   | {
       type: "message";
       text: string;
+      reactionEmoji?: string;
       reasoningSummary?: string;
       memoryItems: ApiMemory;
-      sleepAfter?: boolean;
     }
   | {
       type: "reaction";
       emoji: string;
+      reasoningSummary?: string;
       memoryItems: ApiMemory;
-      sleepAfter?: boolean;
     }
   | {
       type: "wait";
@@ -22,6 +22,9 @@ export type ResponderResult =
     }
   | {
       type: "sleep";
+      summary: string;
+      text?: string;
+      reactionEmoji?: string;
     }
   | {
       type: "failed";

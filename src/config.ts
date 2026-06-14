@@ -12,11 +12,13 @@ export interface AppConfig {
   openaiDailyBudgetUsd: number;
   openaiUsageLogDir: string;
   internalStatePath: string;
+  conversationSummaryPath: string;
   discordLogChannelId: string | undefined;
   knownPeople: Record<string, KnownPerson>;
   logLevel: LogLevel;
   logPrompts: boolean;
-  debounceMs: number;
+  messageDebounceMs: number;
+  typingDebounceMs: number;
   idleSleepMs: number;
   messageLineDelayMs: number;
   internalActionIntervalMs: number;
@@ -72,11 +74,15 @@ function readKnownPeople(): Record<string, KnownPerson> {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error('KNOWN_PEOPLE must be valid JSON, like {"makandz":"Makan"}.');
+    throw new Error(
+      'KNOWN_PEOPLE must be valid JSON, like {"makandz":"Makan"}.',
+    );
   }
 
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new Error("KNOWN_PEOPLE must be a JSON object mapping Discord usernames to names.");
+    throw new Error(
+      "KNOWN_PEOPLE must be a JSON object mapping Discord usernames to names.",
+    );
   }
 
   const knownPeople: Record<string, KnownPerson> = {};
@@ -92,7 +98,9 @@ function readKnownPeople(): Record<string, KnownPerson> {
       const name = value.trim();
 
       if (name.length === 0) {
-        throw new Error("KNOWN_PEOPLE string entries must use non-empty names.");
+        throw new Error(
+          "KNOWN_PEOPLE string entries must use non-empty names.",
+        );
       }
 
       knownPeople[normalizedUsername] = { name };
@@ -106,7 +114,9 @@ function readKnownPeople(): Record<string, KnownPerson> {
     const name = value.trim();
 
     if (name.length === 0) {
-      throw new Error("KNOWN_PEOPLE must map non-empty Discord usernames to non-empty names.");
+      throw new Error(
+        "KNOWN_PEOPLE must map non-empty Discord usernames to non-empty names.",
+      );
     }
 
     knownPeople[normalizedUsername] = { name };
@@ -123,14 +133,21 @@ export function loadConfig(): AppConfig {
     openaiInternalModel: process.env.OPENAI_INTERNAL_MODEL ?? "gpt-5.4-nano",
     openaiDailyBudgetUsd: readNumberEnv("OPENAI_DAILY_BUDGET_USD", 0),
     openaiUsageLogDir: process.env.OPENAI_USAGE_LOG_DIR ?? "logs/openai-usage",
-    internalStatePath: process.env.BOT_INTERNAL_STATE_PATH ?? "logs/internal-state.json",
+    internalStatePath:
+      process.env.BOT_INTERNAL_STATE_PATH ?? "logs/internal-state.json",
+    conversationSummaryPath:
+      process.env.BOT_CONVERSATION_SUMMARY_PATH ?? "logs/conversation-summaries.json",
     discordLogChannelId: process.env.DISCORD_LOG_CHANNEL_ID,
     knownPeople: readKnownPeople(),
     logLevel: readLogLevel(),
     logPrompts: process.env.LOG_PROMPTS === "true",
-    debounceMs: readNumberEnv("BOT_DEBOUNCE_MS", 3_000),
+    messageDebounceMs: readNumberEnv("BOT_MESSAGE_DEBOUNCE_MS", 5_000),
+    typingDebounceMs: readNumberEnv("BOT_TYPING_DEBOUNCE_MS", 10_000),
     idleSleepMs: readNumberEnv("BOT_IDLE_SLEEP_MS", 10 * 60 * 1_000),
     messageLineDelayMs: readNumberEnv("BOT_MESSAGE_LINE_DELAY_MS", 1_000),
-    internalActionIntervalMs: readNumberEnv("BOT_INTERNAL_ACTION_INTERVAL_MS", 24 * 60 * 60 * 1_000),
+    internalActionIntervalMs: readNumberEnv(
+      "BOT_INTERNAL_ACTION_INTERVAL_MS",
+      24 * 60 * 60 * 1_000,
+    ),
   };
 }
