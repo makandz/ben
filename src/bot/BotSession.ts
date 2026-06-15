@@ -1,9 +1,17 @@
 import type { AppConfig } from "../config.js";
 import type { Logger } from "../logger.js";
 import type { OpenAIResponder } from "../openai/responder.js";
-import type { ApiMemory, ResponderResult } from "../openai/types.js";
+import type {
+  ApiMemory,
+  RememberPersonToolInput,
+  RememberPersonToolResult,
+  ResponderResult,
+  SendChannelMessageToolInput,
+  SendChannelMessageToolResult,
+} from "../openai/types.js";
 import type { ConversationSummaryStore } from "./conversationSummaryStore.js";
 import { buildUserPrompt } from "./formatMessages.js";
+import type { KnownPeopleStore } from "./knownPeopleStore.js";
 import type { BotMode, HumanMessage } from "./types.js";
 
 type SendMessageToChannel = (channelId: string, text: string) => Promise<void>;
@@ -12,16 +20,32 @@ type SendTypingToChannel = (channelId: string) => Promise<void>;
 type ReactToMessage = (channelId: string, messageId: string, emoji: string) => Promise<void>;
 type GetCurrentActivityStatus = () => string | undefined;
 type SetAwakePresence = (awake: boolean) => void;
+type RememberPerson = (
+  input: RememberPersonToolInput,
+  channelId: string | undefined,
+) => Promise<RememberPersonToolResult>;
+type SendChannelMessage = (
+  input: SendChannelMessageToolInput,
+  activeChannelId: string | undefined,
+) => Promise<SendChannelMessageToolResult>;
 
 interface TypingActivity {
   expiresAt: number;
 }
 
+interface QueuedWakeRequest {
+  channelId: string;
+  messages: HumanMessage[];
+  recentContext: HumanMessage[];
+}
+
 export class BotSession {
   private mode: BotMode = "sleeping";
-  private sleepFifo: HumanMessage[] = [];
+  private activeChannelId: string | undefined;
+  private sleepFifoByChannel = new Map<string, HumanMessage[]>();
   private pendingBatch: HumanMessage[] = [];
   private queuedWhileProcessing: HumanMessage[] = [];
+  private queuedWakeRequests: QueuedWakeRequest[] = [];
   private apiMemory: ApiMemory = [];
   private recentContextForPendingBatch: HumanMessage[] = [];
   private channelLastMessageAt = new Map<string, number>();
@@ -39,29 +63,70 @@ export class BotSession {
     private readonly getCurrentActivityStatus: GetCurrentActivityStatus,
     private readonly setAwakePresence: SetAwakePresence,
     private readonly conversationSummaryStore: ConversationSummaryStore,
+    private readonly knownPeopleStore: KnownPeopleStore,
+    private readonly rememberPerson: RememberPerson,
+    private readonly sendChannelMessage: SendChannelMessage,
     private readonly logger: Logger,
   ) {}
 
   handleMessage(message: HumanMessage, ping: boolean): void {
     this.markMessageActivity(message);
+    const recentContext = this.getSleepFifo(message.channelId);
 
     if (this.mode === "sleeping") {
-      const recentContext = [...this.sleepFifo];
       this.addToSleepFifo(message);
 
       if (!ping) {
         this.logger.debug("fifo.message", {
+          channelId: message.channelId,
           username: message.username,
-          fifoCount: this.sleepFifo.length,
+          fifoCount: this.getSleepFifo(message.channelId).length,
         });
         return;
       }
 
-      this.wake(message, recentContext);
+      this.wake([message], recentContext);
       return;
     }
 
     this.addToSleepFifo(message);
+
+    if (message.channelId !== this.activeChannelId) {
+      const queuedWakeRequest = this.queuedWakeRequests.find(
+        (request) => request.channelId === message.channelId,
+      );
+
+      if (queuedWakeRequest !== undefined) {
+        queuedWakeRequest.messages.push(message);
+        this.logger.info("wake_queue.message_added", {
+          channelId: message.channelId,
+          username: message.username,
+          messages: queuedWakeRequest.messages.length,
+        });
+        return;
+      }
+
+      if (ping) {
+        this.queuedWakeRequests.push({
+          channelId: message.channelId,
+          messages: [message],
+          recentContext,
+        });
+        this.logger.info("wake_queue.queued", {
+          channelId: message.channelId,
+          username: message.username,
+          queuedChannels: this.queuedWakeRequests.length,
+        });
+      } else {
+        this.logger.debug("fifo.other_channel_message", {
+          activeChannelId: this.activeChannelId,
+          channelId: message.channelId,
+          username: message.username,
+        });
+      }
+
+      return;
+    }
 
     if (this.mode === "processing") {
       this.queuedWhileProcessing.push(message);
@@ -112,20 +177,29 @@ export class BotSession {
     this.resetIdleSleepTimer();
   }
 
-  private wake(message: HumanMessage, recentContext: HumanMessage[]): void {
+  private wake(messages: HumanMessage[], recentContext: HumanMessage[]): void {
+    const firstMessage = messages[0];
+
+    if (firstMessage === undefined) {
+      return;
+    }
+
     this.mode = "awake";
+    this.activeChannelId = firstMessage.channelId;
     this.setAwakePresence(true);
-    this.pendingBatch = [message];
+    this.pendingBatch = messages;
     this.recentContextForPendingBatch = recentContext;
     this.apiMemory = [];
     this.queuedWhileProcessing = [];
 
     this.logger.info("mode.wake", {
-      by: message.username,
+      channelId: firstMessage.channelId,
+      by: firstMessage.username,
+      messages: messages.length,
       contextCount: recentContext.length,
     });
 
-    void this.sendStatusMessage("Woke up from a ping", message.channelId);
+    void this.sendStatusMessage("Woke up from a ping", firstMessage.channelId);
     this.scheduleDebounce();
     this.resetIdleSleepTimer();
   }
@@ -290,10 +364,14 @@ export class BotSession {
     const recentConversationSummaries = includeFirstPromptContext
       ? await this.conversationSummaryStore.list()
       : [];
+    const knownPeople = await this.knownPeopleStore.listForPrompt().catch((error: unknown) => {
+      this.logger.warn("known_people.read_failed", { error: String(error) });
+      return {};
+    });
     const promptOptions: Parameters<typeof buildUserPrompt>[0] = {
       recentContext,
       messages,
-      knownPeople: this.config.knownPeople,
+      knownPeople,
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
     };
@@ -323,7 +401,18 @@ export class BotSession {
     const stopTyping = this.startTyping(responseChannelId);
 
     try {
-      const result = await this.responder.respond(userPrompt, this.apiMemory);
+      const result = await this.responder.respond(userPrompt, this.apiMemory, {
+        rememberPerson: (input) => this.rememberPerson(input, responseChannelId),
+        sendChannelMessage: async (input) => {
+          const result = await this.sendChannelMessage(input, responseChannelId);
+
+          if (result.ok) {
+            this.addBotMessageToSleepFifo(result.channelId, input.text);
+          }
+
+          return result;
+        },
+      });
       await this.handleResponderResult(result, responseChannelId, reactionTargetMessageId);
     } finally {
       stopTyping();
@@ -524,6 +613,7 @@ export class BotSession {
     }
 
     this.mode = "sleeping";
+    this.activeChannelId = undefined;
     this.setAwakePresence(false);
     this.pendingBatch = [];
     this.queuedWhileProcessing = [];
@@ -533,16 +623,62 @@ export class BotSession {
 
     this.logger.info("mode.sleep", {
       reason,
-      fifoCount: this.sleepFifo.length,
+      queuedWakeRequests: this.queuedWakeRequests.length,
     });
+
+    this.wakeNextQueuedChannel();
   }
 
   private addToSleepFifo(message: HumanMessage): void {
-    this.sleepFifo.push(message);
+    const fifo = this.sleepFifoByChannel.get(message.channelId) ?? [];
+    fifo.push(message);
 
-    if (this.sleepFifo.length > 5) {
-      this.sleepFifo.shift();
+    if (fifo.length > 5) {
+      fifo.shift();
     }
+
+    this.sleepFifoByChannel.set(message.channelId, fifo);
+  }
+
+  private getSleepFifo(channelId: string): HumanMessage[] {
+    return [...(this.sleepFifoByChannel.get(channelId) ?? [])];
+  }
+
+  private addBotMessageToSleepFifo(channelId: string, content: string): void {
+    const message: HumanMessage = {
+      id: `ben:${String(Date.now())}:${String(Math.random())}`,
+      channelId,
+      userId: "ben",
+      username: "Ben",
+      content,
+      createdAt: Date.now(),
+    };
+
+    this.addToSleepFifo(message);
+
+    const queuedWakeRequest = this.queuedWakeRequests.find(
+      (request) => request.channelId === channelId,
+    );
+
+    if (queuedWakeRequest !== undefined) {
+      queuedWakeRequest.messages.push(message);
+    }
+  }
+
+  private wakeNextQueuedChannel(): void {
+    const nextWakeRequest = this.queuedWakeRequests.shift();
+
+    if (nextWakeRequest === undefined) {
+      return;
+    }
+
+    this.logger.info("wake_queue.promoted", {
+      channelId: nextWakeRequest.channelId,
+      messages: nextWakeRequest.messages.length,
+      remainingQueuedChannels: this.queuedWakeRequests.length,
+    });
+
+    this.wake(nextWakeRequest.messages, nextWakeRequest.recentContext);
   }
 }
 
