@@ -34,7 +34,7 @@ TypeScript Discord bot that wakes on a ping, batches recent human messages, and 
    pnpm dev
    ```
 
-The bot logs when it connects. It replies in the channel where the triggering message batch was received. Status messages such as wake, wait, sleep, and reasoning summaries are sent to `DISCORD_LOG_CHANNEL_ID` when configured.
+The bot logs when it connects. It replies in the channel where the triggering message batch was received, and can route requested messages to another server channel by name. Ben stays active in one channel at a time; pings from other channels are queued until the current channel sleeps. Status messages such as wake, wait, sleep, and reasoning summaries are sent to `DISCORD_LOG_CHANNEL_ID` when configured.
 
 ## Internal Actions
 
@@ -61,14 +61,13 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 - `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
 - `OPENAI_USAGE_LOG_DIR` defaults to `logs/openai-usage`. Usage is stored in monthly `YYMM.json` files with daily buckets.
 - `BOT_INTERNAL_STATE_PATH` defaults to `logs/internal-state.json`. Internal action state is stored separately from usage.
+- `BOT_KNOWN_PEOPLE_PATH` defaults to `logs/known-people.json`. The bot stores remembered Discord users and names there after validating them against the server.
 - `DISCORD_LOG_CHANNEL_ID` optionally enables internal action log lines, wake/wait/sleep status messages, and reasoning summaries in a dedicated Discord channel.
-- `KNOWN_PEOPLE` maps Discord usernames to real names in prompts, for example `{"makandz":"Makan"}`. Known users are shown as `makandz (Makan): ...`; unknown users stay as `username: ...`.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
 - `LOG_PROMPTS=true` logs full prompts at debug level.
 - `BOT_MESSAGE_DEBOUNCE_MS` defaults to `5000`. After the latest human message, the bot waits this long before calling OpenAI.
 - `BOT_TYPING_DEBOUNCE_MS` defaults to `10000`. Each Discord typing indicator keeps that user active for this long unless they send a message first.
-- `BOT_IDLE_SLEEP_MS` defaults to `600000`.
-- `BOT_MESSAGE_LINE_DELAY_MS` defaults to `1000`; multi-line bot replies are sent one line at a time with this delay before each next line.
+- `BOT_IDLE_SLEEP_MS` defaults to `300000`.
 - `BOT_INTERNAL_ACTION_INTERVAL_MS` defaults to `86400000`.
 
 The system prompt is loaded from `src/prompts/system.txt` on each OpenAI request, so edits are picked up without restarting the bot.

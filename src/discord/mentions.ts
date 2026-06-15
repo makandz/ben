@@ -1,8 +1,10 @@
 import type { Message, User } from "discord.js";
 
 const DISCORD_USER_MENTION_PATTERN = /<@!?(\d+)>/g;
+const DISCORD_CHANNEL_MENTION_PATTERN = /<#(\d+)>/g;
 const BROADCAST_MENTION_PATTERN = /@(?=everyone\b|here\b)/gi;
 const USERNAME_MENTION_PATTERN = /(^|[^\w@.])@([a-z0-9_]{2,32})(?![\w.])/gi;
+const CHANNEL_NAME_PATTERN = /(^|[^\w#<])#([a-z0-9_-]{1,100})(?![\w-])/gi;
 
 export function escapeBroadcastMentions(content: string): string {
   return content.replace(BROADCAST_MENTION_PATTERN, "@\u200B");
@@ -77,8 +79,81 @@ export class UserMentionDirectory {
   }
 }
 
+export class ChannelMentionDirectory {
+  private readonly idToName = new Map<string, string>();
+  private readonly nameToId = new Map<string, string>();
+
+  rememberChannel(channel: { id: string; name?: string | null }): void {
+    if (typeof channel.name !== "string" || channel.name.length === 0) {
+      return;
+    }
+
+    this.idToName.set(channel.id, channel.name);
+    this.nameToId.set(normalizeChannelName(channel.name), channel.id);
+  }
+
+  rememberMessageChannels(message: Message): void {
+    this.rememberChannel(message.channel);
+
+    for (const channel of message.mentions.channels.values()) {
+      this.rememberChannel(channel);
+    }
+  }
+
+  convertMentionsToNames(content: string): string {
+    return content.replace(DISCORD_CHANNEL_MENTION_PATTERN, (mention, channelId: string) => {
+      const name = this.idToName.get(channelId);
+
+      return name === undefined ? mention : `#${name}`;
+    });
+  }
+
+  convertNamesToMentions(content: string): string {
+    let converted = content;
+    const channelNames = [...this.nameToId.keys()].sort(
+      (left, right) => right.length - left.length,
+    );
+
+    for (const channelName of channelNames) {
+      const channelId = this.nameToId.get(channelName);
+
+      if (channelId === undefined) {
+        continue;
+      }
+
+      converted = converted.replace(channelMentionPattern(channelName), `$1<#${channelId}>`);
+    }
+
+    return converted;
+  }
+
+  findUnresolvedChannelNames(content: string): string[] {
+    const channelNames = new Set<string>();
+
+    for (const match of content.matchAll(CHANNEL_NAME_PATTERN)) {
+      const channelName = match[2];
+
+      if (channelName === undefined) {
+        continue;
+      }
+
+      const normalizedChannelName = normalizeChannelName(channelName);
+
+      if (!this.nameToId.has(normalizedChannelName)) {
+        channelNames.add(normalizedChannelName);
+      }
+    }
+
+    return [...channelNames];
+  }
+}
+
 function normalizeUsername(username: string): string {
   return username.toLowerCase();
+}
+
+function normalizeChannelName(channelName: string): string {
+  return channelName.toLowerCase();
 }
 
 function usernameMentionPattern(username: string): RegExp {
@@ -87,6 +162,10 @@ function usernameMentionPattern(username: string): RegExp {
 
 function usernameMentionTagPattern(username: string): RegExp {
   return new RegExp(`<@${escapeRegExp(username)}>`, "gi");
+}
+
+function channelMentionPattern(channelName: string): RegExp {
+  return new RegExp(`(^|[^\\w#<])#${escapeRegExp(channelName)}(?![\\w-])`, "gi");
 }
 
 function escapeRegExp(text: string): string {

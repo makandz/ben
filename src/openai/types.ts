@@ -2,6 +2,43 @@ import type { ResponseInputItem } from "openai/resources/responses/responses";
 
 export type ApiMemory = ResponseInputItem[];
 
+export interface RememberPersonToolInput {
+  username: string;
+  name: string;
+}
+
+export type RememberPersonToolResult =
+  | {
+      ok: true;
+      username: string;
+      name: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+export interface SendChannelMessageToolInput {
+  channel: string;
+  text: string;
+}
+
+export type SendChannelMessageToolResult =
+  | {
+      ok: true;
+      channel: string;
+      channelId: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+export interface BotToolExecutor {
+  rememberPerson(input: RememberPersonToolInput): Promise<RememberPersonToolResult>;
+  sendChannelMessage(input: SendChannelMessageToolInput): Promise<SendChannelMessageToolResult>;
+}
+
 export type ResponderResult =
   | {
       type: "message";

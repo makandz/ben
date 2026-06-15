@@ -10,7 +10,13 @@ import type { AppConfig } from "../config.js";
 import type { Logger } from "../logger.js";
 import { extractReasoningSummary } from "./reasoning.js";
 import { loadSystemPrompt } from "./systemPrompt.js";
-import type { ApiMemory, ResponderResult } from "./types.js";
+import type {
+  ApiMemory,
+  BotToolExecutor,
+  RememberPersonToolInput,
+  ResponderResult,
+  SendChannelMessageToolInput,
+} from "./types.js";
 import { getModelPricing } from "./pricing.js";
 import { OpenAIUsageStore } from "./usageStore.js";
 
@@ -26,7 +32,11 @@ export class OpenAIResponder {
     this.client = new OpenAI({ apiKey: config.openaiApiKey });
   }
 
-  async respond(userPrompt: string, memory: ApiMemory): Promise<ResponderResult> {
+  async respond(
+    userPrompt: string,
+    memory: ApiMemory,
+    toolExecutor: BotToolExecutor,
+  ): Promise<ResponderResult> {
     const userItem = createUserMessageItem(userPrompt);
     const turnItems: ResponseInputItem[] = [userItem];
     const instructions = await loadSystemPrompt(this.logger);
@@ -59,69 +69,116 @@ export class OpenAIResponder {
         };
       }
 
-      const input: ResponseInputItem[] = [...memory, ...turnItems];
-      const response = await this.client.responses.create({
-        model: this.config.openaiModel,
-        instructions,
-        input,
-        tools: botControlTools,
-        tool_choice: "required",
-        max_output_tokens: 512,
-        reasoning: { effort: "low", summary: "concise" },
-        include: ["reasoning.encrypted_content"],
-        store: false,
-      });
-
-      if (response.usage !== undefined) {
-        const usage = await this.usageStore.record(this.config.openaiModel, response.usage);
-
-        this.logger.info("openai.usage", {
-          day: usage.day,
-          costUsd: usage.costUsd,
-          totalCostUsd: usage.totalCostUsd,
-          inputTokens: usage.inputTokens,
-          cachedInputTokens: usage.cachedInputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
+      for (let toolIteration = 0; toolIteration < 4; toolIteration += 1) {
+        const input: ResponseInputItem[] = [...memory, ...turnItems];
+        const response = await this.client.responses.create({
+          model: this.config.openaiModel,
+          instructions,
+          input,
+          tools: botControlTools,
+          tool_choice: "required",
+          max_output_tokens: 512,
+          reasoning: { effort: "low", summary: "concise" },
+          include: ["reasoning.encrypted_content"],
+          store: false,
         });
-      } else {
-        this.logger.warn("openai.usage_missing");
-      }
 
-      this.logger.info("openai.raw_response", { text: response.output_text });
+        if (response.usage !== undefined) {
+          const usage = await this.usageStore.record(this.config.openaiModel, response.usage);
 
-      const reasoningSummary = extractReasoningSummary(response.output);
-      turnItems.push(...(stripReasoningSummaries(response.output) as ResponseInputItem[]));
+          this.logger.info("openai.usage", {
+            day: usage.day,
+            costUsd: usage.costUsd,
+            totalCostUsd: usage.totalCostUsd,
+            inputTokens: usage.inputTokens,
+            cachedInputTokens: usage.cachedInputTokens,
+            outputTokens: usage.outputTokens,
+            totalTokens: usage.totalTokens,
+          });
+        } else {
+          this.logger.warn("openai.usage_missing");
+        }
 
-      const toolCalls = response.output.filter(isBotControlToolCall);
+        this.logger.info("openai.raw_response", { text: response.output_text });
 
-      if (toolCalls.length !== 1) {
-        this.logger.warn("openai.invalid_tool_call_count", { count: toolCalls.length });
-        turnItems.push(
-          ...toolCalls.map((toolCall) =>
+        const reasoningSummary = extractReasoningSummary(response.output);
+        turnItems.push(...(stripReasoningSummaries(response.output) as ResponseInputItem[]));
+
+        const toolCalls = response.output.filter(isBotControlToolCall);
+
+        if (toolCalls.length !== 1) {
+          this.logger.warn("openai.invalid_tool_call_count", { count: toolCalls.length });
+          turnItems.push(
+            ...toolCalls.map((toolCall) =>
+              createFunctionCallOutput(toolCall, {
+                ok: false,
+                error: "expected exactly one tool call",
+              }),
+            ),
+          );
+          return {
+            type: "wait",
+            memoryItems: turnItems,
+          };
+        }
+
+        const toolCall = toolCalls[0];
+
+        if (toolCall === undefined) {
+          return {
+            type: "wait",
+            memoryItems: turnItems,
+          };
+        }
+
+        if (toolCall.name === "remember_person") {
+          const result = await executeRememberPersonTool(toolCall, toolExecutor, this.logger);
+          turnItems.push(createFunctionCallOutput(toolCall, result));
+          continue;
+        }
+
+        if (toolCall.name === "send_message") {
+          const action = parseMessageAction(toolCall);
+
+          if (action.channel.length > 0) {
+            const result = await executeSendChannelMessageTool(
+              toolCall,
+              action,
+              toolExecutor,
+              this.logger,
+            );
+            turnItems.push(createFunctionCallOutput(toolCall, result));
+            continue;
+          }
+
+          return createSendMessageResult(
+            toolCall,
+            action,
+            turnItems,
+            reasoningSummary,
+            response.output.length,
+            this.logger,
+          );
+        }
+
+        if (toolCall.name === "wait_for_more_messages") {
+          turnItems.push(
             createFunctionCallOutput(toolCall, {
-              ok: false,
-              error: "expected exactly one tool call",
+              ok: true,
+              paused_until: "new_human_message",
             }),
-          ),
-        );
-        return {
-          type: "wait",
-          memoryItems: turnItems,
-        };
-      }
+          );
+          this.logger.info("openai.response", {
+            action: "wait_command",
+            memoryItems: turnItems.length,
+          });
+          return {
+            type: "wait",
+            memoryItems: turnItems,
+          };
+        }
 
-      const toolCall = toolCalls[0];
-
-      if (toolCall === undefined) {
-        return {
-          type: "wait",
-          memoryItems: turnItems,
-        };
-      }
-
-      if (toolCall.name === "send_message") {
-        return createSendMessageResult(
+        return createSleepResult(
           toolCall,
           turnItems,
           reasoningSummary,
@@ -130,30 +187,11 @@ export class OpenAIResponder {
         );
       }
 
-      if (toolCall.name === "wait_for_more_messages") {
-        turnItems.push(
-          createFunctionCallOutput(toolCall, {
-            ok: true,
-            paused_until: "new_human_message",
-          }),
-        );
-        this.logger.info("openai.response", {
-          action: "wait_command",
-          memoryItems: turnItems.length,
-        });
-        return {
-          type: "wait",
-          memoryItems: turnItems,
-        };
-      }
-
-      return createSleepResult(
-        toolCall,
-        turnItems,
-        reasoningSummary,
-        response.output.length,
-        this.logger,
-      );
+      this.logger.warn("openai.tool_iteration_limit");
+      return {
+        type: "wait",
+        memoryItems: turnItems,
+      };
     } catch (error) {
       this.logger.warn("openai.failed", { error: String(error) });
       return { type: "failed", error };
@@ -162,6 +200,29 @@ export class OpenAIResponder {
 }
 
 const botControlTools = [
+  {
+    type: "function",
+    name: "remember_person",
+    description:
+      "Non-terminal action. Remember that a Discord username belongs to a real person when a human tells you or when it is clear from conversation. Use this before your final terminal action. The server will verify the username and reject duplicates.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        username: {
+          type: "string",
+          description:
+            "Discord username without @. Use the server username, not a display name, when possible.",
+        },
+        name: {
+          type: "string",
+          description: "The person's real name or preferred name.",
+        },
+      },
+      required: ["username", "name"],
+    },
+  },
   {
     type: "function",
     name: "send_message",
@@ -182,8 +243,13 @@ const botControlTools = [
           description:
             "Exactly one standard Unicode emoji to react with, or null when only sending a message.",
         },
+        channel: {
+          type: ["string", "null"],
+          description:
+            "Target channel for cross-channel messages, with or without a leading #, such as #general or general. Use null for the current channel.",
+        },
       },
-      required: ["text", "reaction"],
+      required: ["text", "reaction", "channel"],
     },
   },
   {
@@ -231,6 +297,7 @@ const botControlTools = [
 ] satisfies Tool[];
 
 type BotControlToolName =
+  | "remember_person"
   | "send_message"
   | "wait_for_more_messages"
   | "sleep_conversation";
@@ -244,9 +311,76 @@ function isBotControlToolCall(item: ResponseOutputItem): item is ResponseFunctio
 function isBotControlToolName(name: string): name is BotControlToolName {
   return (
     name === "send_message" ||
+    name === "remember_person" ||
     name === "wait_for_more_messages" ||
     name === "sleep_conversation"
   );
+}
+
+async function executeRememberPersonTool(
+  toolCall: ResponseFunctionToolCall,
+  toolExecutor: BotToolExecutor,
+  logger: Logger,
+): Promise<Record<string, unknown>> {
+  const input = parseRememberPersonAction(toolCall);
+
+  if (input.username.length === 0 || input.name.length === 0) {
+    logger.warn("openai.invalid_remember_person_args", {
+      usernameChars: input.username.length,
+      nameChars: input.name.length,
+    });
+    return {
+      ok: false,
+      error: "remember_person requires non-empty username and name",
+    };
+  }
+
+  const result = await toolExecutor.rememberPerson(input);
+  logger.info("openai.remember_person_result", result);
+
+  return result;
+}
+
+async function executeSendChannelMessageTool(
+  toolCall: ResponseFunctionToolCall,
+  action: MessageAction,
+  toolExecutor: BotToolExecutor,
+  logger: Logger,
+): Promise<Record<string, unknown>> {
+  if (action.text.length === 0) {
+    logger.warn("openai.empty_cross_channel_send_message", { channel: action.channel });
+    return {
+      ok: false,
+      error: "cross-channel send_message requires non-empty text",
+    };
+  }
+
+  if (action.reaction.length > 0) {
+    logger.warn("openai.invalid_cross_channel_send_message_reaction", {
+      channel: action.channel,
+      reaction: action.reaction,
+    });
+    return {
+      ok: false,
+      error: "cross-channel send_message cannot include a reaction",
+    };
+  }
+
+  const input: SendChannelMessageToolInput = {
+    channel: action.channel,
+    text: action.text,
+  };
+  const result = await toolExecutor.sendChannelMessage(input);
+  logger.info("openai.cross_channel_send_message_result", result);
+
+  if (result.ok) {
+    return {
+      ok: true,
+      channel: result.channel,
+    };
+  }
+
+  return result;
 }
 
 function parseFunctionArguments(args: string): Record<string, unknown> {
@@ -265,13 +399,12 @@ function parseFunctionArguments(args: string): Record<string, unknown> {
 
 function createSendMessageResult(
   toolCall: ResponseFunctionToolCall,
+  action: MessageAction,
   turnItems: ResponseInputItem[],
   reasoningSummary: string | undefined,
   outputItemCount: number,
   logger: Logger,
 ): ResponderResult {
-  const action = parseMessageAction(toolCall);
-
   if (action.reaction.length > 0 && !isSingleUnicodeEmoji(action.reaction)) {
     logger.warn("openai.invalid_send_message_reaction", { reaction: action.reaction });
     turnItems.push(
@@ -412,15 +545,20 @@ function createSleepResult(
   return result;
 }
 
-function parseMessageAction(toolCall: ResponseFunctionToolCall): {
+interface MessageAction {
   text: string;
   reaction: string;
-} {
+  channel: string;
+}
+
+function parseMessageAction(toolCall: ResponseFunctionToolCall): MessageAction {
   const args = parseFunctionArguments(toolCall.arguments);
+  const rawChannel = typeof args.channel === "string" ? args.channel.trim() : "";
 
   return {
     text: typeof args.text === "string" ? args.text.trim() : "",
     reaction: typeof args.reaction === "string" ? args.reaction.trim() : "",
+    channel: rawChannel.replace(/^#+/, "").trim(),
   };
 }
 
@@ -428,6 +566,19 @@ function parseSleepSummary(toolCall: ResponseFunctionToolCall): string {
   const args = parseFunctionArguments(toolCall.arguments);
 
   return typeof args.summary === "string" ? args.summary.trim() : "";
+}
+
+function parseRememberPersonAction(toolCall: ResponseFunctionToolCall): RememberPersonToolInput {
+  const args = parseFunctionArguments(toolCall.arguments);
+
+  return {
+    username: typeof args.username === "string" ? trimUsername(args.username) : "",
+    name: typeof args.name === "string" ? args.name.trim() : "",
+  };
+}
+
+function trimUsername(username: string): string {
+  return username.trim().replace(/^@+/, "");
 }
 
 function isSingleUnicodeEmoji(value: string): boolean {
