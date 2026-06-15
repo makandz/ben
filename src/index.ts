@@ -1,335 +1,231 @@
-import {
-  Client,
-  Events,
-  GatewayIntentBits,
-  Guild,
-  TextChannel,
-  User,
-} from "discord.js";
-import { BOT_TOKEN, TARGET_CHANNEL_ID } from "./config.js";
-import { memoryStore } from "./memory.js";
-import { getEmbedding, queryGemini } from "./query-gemini.js";
-import { isTextChannel } from "./utils/is-text-channel.js";
+import "dotenv/config";
 
-const DEBUG = false;
+import { Events, type GuildMember } from "discord.js";
 
-/**
- * Converts any @username mentions in a message to proper Discord mentions.
- * Uses Discord.js's built-in cache for guild members.
- */
-const convertUsernamesToMentions = async (
-  guild: Guild,
-  content: string
-): Promise<string> => {
-  const mentionRegex = /@(\w+)/g;
-  const matches = content.match(mentionRegex);
-  if (!matches) return content;
+import { BotSession } from "./bot/BotSession.js";
+import { ConversationSummaryStore } from "./bot/conversationSummaryStore.js";
+import { loadConfig } from "./config.js";
+import { createDiscordClient } from "./discord/client.js";
+import { isPing, toHumanMessage } from "./discord/message.js";
+import { escapeBroadcastMentions, UserMentionDirectory } from "./discord/mentions.js";
+import { handleUsageCommand, registerUsageCommand } from "./discord/usageCommand.js";
+import { InternalActionRunner } from "./internal/actions.js";
+import { InternalActionScheduler } from "./internal/scheduler.js";
+import { InternalStateStore } from "./internal/stateStore.js";
+import { Logger } from "./logger.js";
+import { OpenAIResponder } from "./openai/responder.js";
+import { OpenAIUsageStore } from "./openai/usageStore.js";
 
-  let result = content;
-  for (const match of matches) {
-    const username = match.substring(1); // Remove @ symbol
-
-    // Look up the member from the built-in cache first
-    let member = guild.members.cache.find(
-      (m) => m.user.username.toLowerCase() === username.toLowerCase()
-    );
-
-    // Fall back to API fetch if not found in the cache
-    if (!member) {
-      const fetchedMembers = await guild.members.fetch({
-        query: username,
-        limit: 1,
-      });
-      member = fetchedMembers.first();
-    }
-
-    if (member) {
-      result = result.replace(
-        new RegExp(`@${username}\\b`, "g"),
-        `<@${member.id}>`
-      );
-    }
+const config = loadConfig();
+const logger = new Logger(config.logLevel);
+const client = createDiscordClient();
+const usageStore = new OpenAIUsageStore(config, logger);
+const conversationSummaryStore = new ConversationSummaryStore(
+  config.conversationSummaryPath,
+  logger,
+);
+const responder = new OpenAIResponder(config, logger, usageStore);
+const internalActionRunner = new InternalActionRunner(config, logger, usageStore);
+const internalStateStore = new InternalStateStore(config.internalStatePath, logger);
+const mentionDirectory = new UserMentionDirectory();
+const sendLogMessage = async (text: string): Promise<boolean> => {
+  if (config.discordLogChannelId === undefined) {
+    return false;
   }
 
-  return result;
-};
+  const channel = await client.channels.fetch(config.discordLogChannelId);
 
-/**
- * Converts Discord mention format (<@userId>) to @username format
- */
-const convertMentionsToUsernames = (content: string, message: any): string => {
-  return content.replace(/<@!?(\d+)>/g, (match, userId) => {
-    const user = message.mentions.users.get(userId);
-    return user ? `@${user.username}` : match;
+  if (!channel?.isSendable()) {
+    throw new Error("Log channel is not sendable.");
+  }
+
+  await channel.send({
+    content: text,
+    allowedMentions: {
+      parse: [],
+    },
   });
+
+  return true;
 };
+const internalActionScheduler = new InternalActionScheduler(
+  config,
+  client,
+  internalActionRunner,
+  internalStateStore,
+  async (text) => {
+    await sendLogMessage(text);
+  },
+  logger,
+);
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageTyping,
-    GatewayIntentBits.GuildMembers,
-  ],
-});
+const session = new BotSession(
+  config,
+  responder,
+  async (channelId, text) => {
+    const channel = await client.channels.fetch(channelId);
 
-const channelHistory: {
-  author: User;
-  content: string;
-}[] = [];
+    if (!channel?.isSendable()) {
+      throw new Error("Response channel is not sendable.");
+    }
 
-/**
- * Adds a message to the channel history. Maintains a maximum length of 20 messages.
- * @param message - The message to add to the history.
- */
-const addToChannelHistory = (message: { author: User; content: string }) => {
-  channelHistory.push(message);
-  if (channelHistory.length > 20) {
-    channelHistory.shift();
-  }
-};
+    const safeText = escapeBroadcastMentions(text);
+    await resolveUnknownMentions(channel, safeText);
+    await channel.send({
+      content: escapeBroadcastMentions(mentionDirectory.convertUsernamesToMentions(safeText)),
+      allowedMentions: {
+        parse: ["users"],
+      },
+    });
+  },
+  async (text, fallbackChannelId) => {
+    const sentToLog = await sendLogMessage(text);
 
-const WPM = 130;
-const calculateTypingSpeed = (message: string): number => {
-  const wordCount = message.trim().split(/\s+/).length;
-  const delay = (wordCount / WPM) * 60000;
-  return Math.min(Math.max(1500, delay), 4000);
-};
-
-let processMessageArgs: {
-  prompt: string;
-  channel: TextChannel;
-} | null = null;
-
-let lastInvolved: number | null = null;
-let ignoreCount = 0; // TODO:
-let waitingTimeout: NodeJS.Timeout | null = null;
-let conversationTimeout: NodeJS.Timeout | null = null;
-let typingMessage: string | null = null;
-const messageQueue: {
-  content: string;
-  channel: TextChannel;
-}[] = [];
-
-const processMessage = async () => {
-  if (!processMessageArgs) {
-    return;
-  }
-
-  const { prompt, channel } = processMessageArgs;
-  // console.log(prompt)
-
-  console.log(prompt);
-  const shouldRespond = await queryGemini(prompt, "think-should-respond");
-  if (DEBUG) {
-    await channel.send(`> thinking.. should I respond? ${shouldRespond}`);
-  }
-
-  console.log("Should respond:", shouldRespond);
-
-  if (!shouldRespond || !shouldRespond.includes("YES")) {
-    console.log("Not responding to the message.");
-    processMessageArgs = null;
-    return;
-  }
-
-  const response = await queryGemini(prompt, "conversation");
-
-  response.split("\n\n").forEach((part) => {
-    const partParsed = part.replaceAll(/\n/g, " ").trim();
-    if (!partParsed || partParsed === "N/A") {
+    if (sentToLog || fallbackChannelId === undefined) {
       return;
     }
 
-    messageQueue.push({
-      content: partParsed,
-      channel: channel,
+    const channel = await client.channels.fetch(fallbackChannelId);
+
+    if (!channel?.isSendable()) {
+      throw new Error("Status fallback channel is not sendable.");
+    }
+
+    await channel.send({
+      content: text,
+      allowedMentions: {
+        parse: [],
+      },
     });
+  },
+  async (channelId) => {
+    const channel = await client.channels.fetch(channelId);
+
+    if (!channel?.isSendable()) {
+      throw new Error("Typing channel is not sendable.");
+    }
+
+    await channel.sendTyping();
+  },
+  async (channelId, messageId, emoji) => {
+    const channel = await client.channels.fetch(channelId);
+
+    if (!channel?.isTextBased() || !("messages" in channel)) {
+      throw new Error("Reaction channel is not text-based.");
+    }
+
+    const message = await channel.messages.fetch(messageId);
+    await message.react(emoji);
+  },
+  () => internalActionScheduler.getCurrentActivityStatus(),
+  (awake) => {
+    internalActionScheduler.setAwakePresence(awake);
+  },
+  conversationSummaryStore,
+  logger,
+);
+
+client.once(Events.ClientReady, (readyClient) => {
+  mentionDirectory.rememberUser(readyClient.user);
+  logger.info("discord.ready", { user: readyClient.user.tag });
+  internalActionScheduler.setAwakePresence(false);
+  internalActionScheduler.start();
+  void registerUsageCommand(readyClient, logger).catch((error: unknown) => {
+    logger.warn("discord.command_registration_failed", { error: String(error) });
   });
+});
 
-  // Clear the processMessageArgs before processing the queue
-  processMessageArgs = null;
-  processQueue();
-};
+client.on(Events.MessageCreate, (message) => {
+  const humanMessage = toHumanMessage(message, client, mentionDirectory);
 
-const processQueue = () => {
-  typingMessage = null;
-  if (conversationTimeout) {
-    clearTimeout(conversationTimeout);
-    conversationTimeout = null;
-  }
-
-  if (messageQueue.length === 0) {
+  if (humanMessage === null) {
     return;
   }
 
-  const message = messageQueue.shift()!;
-  message.channel.sendTyping();
+  session.handleMessage(humanMessage, isPing(message, client));
+});
 
-  const typingDuration = calculateTypingSpeed(message.content);
-  console.log(
-    `Simulating typing for "${message.content}" in ${typingDuration}ms`
+client.on(Events.TypingStart, (typing) => {
+  const user = typing.user;
+
+  if (user.bot || user.id === client.user?.id || user.username === null) {
+    return;
+  }
+
+  mentionDirectory.rememberUser(user);
+  session.handleTyping(typing.channel.id, user.id, user.username);
+});
+
+client.on(Events.InteractionCreate, (interaction) => {
+  if (!interaction.isChatInputCommand() || interaction.commandName !== "usage") {
+    return;
+  }
+
+  void handleUsageCommand(interaction, usageStore, logger);
+});
+
+client.on(Events.Error, (error) => {
+  logger.error("discord.error", { error: String(error) });
+});
+
+process.once("SIGINT", () => {
+  internalActionScheduler.stop();
+  void client.destroy();
+});
+
+process.once("SIGTERM", () => {
+  internalActionScheduler.stop();
+  void client.destroy();
+});
+
+await client.login(config.discordToken);
+
+async function resolveUnknownMentions(
+  channel: Awaited<ReturnType<typeof client.channels.fetch>>,
+  text: string,
+): Promise<void> {
+  if (channel === null || !("guild" in channel)) {
+    return;
+  }
+
+  const usernames = mentionDirectory.findUnresolvedMentionUsernames(text);
+
+  for (const username of usernames) {
+    try {
+      const members = await channel.guild.members.search({
+        query: username,
+        limit: 10,
+        cache: true,
+      });
+      const member = findMatchingMember(username, [...members.values()]);
+
+      if (member === undefined) {
+        logger.debug("discord.mention_user_not_found", { username });
+        continue;
+      }
+
+      mentionDirectory.rememberUser(member.user);
+      mentionDirectory.rememberUsername(username, member.id);
+    } catch (error) {
+      logger.warn("discord.mention_lookup_failed", { username, error: String(error) });
+    }
+  }
+}
+
+function findMatchingMember(
+  username: string,
+  members: readonly GuildMember[],
+): GuildMember | undefined {
+  const normalizedUsername = username.toLowerCase();
+  const exactMatch = members.find(
+    (member) =>
+      member.user.username.toLowerCase() === normalizedUsername ||
+      member.displayName.toLowerCase() === normalizedUsername,
   );
 
-  // Simulate typing
-  conversationTimeout = setTimeout(async () => {
-    typingMessage = message.content;
-
-    // Convert any @username mentions to proper Discord mentions
-    const convertedContent = await convertUsernamesToMentions(
-      message.channel.guild,
-      message.content
-    );
-
-    // Adds the bot's own message to the channel history
-    addToChannelHistory({
-      author: client.user!,
-      content: message.content, // Store original content in history
-    });
-
-    lastInvolved = new Date().getTime();
-    await message.channel.send(convertedContent);
-
-    // Process the next message in the queue
-    processQueue();
-  }, calculateTypingSpeed(message.content));
-};
-
-/**
- * Once the client is ready, we're alive!
- */
-client.once(Events.ClientReady, async (readyClient) => {
-  const channel = await readyClient.channels.fetch(TARGET_CHANNEL_ID);
-
-  if (!isTextChannel(channel)) {
-    return console.error(
-      "Target channel is not text-based, not found, or is a PartialGroupDMChannel."
-    );
+  if (exactMatch !== undefined) {
+    return exactMatch;
   }
 
-  console.log(`Logged in as ${readyClient.user.tag}`);
-  await channel.send(`hello world! (debug: ${DEBUG.toString()})`);
-});
-
-/**
- * Listen for messages in the target channel.
- */
-client.on(Events.MessageCreate, async (message) => {
-  if (
-    message.author.bot ||
-    message.channel.id !== TARGET_CHANNEL_ID ||
-    !client.user ||
-    !isTextChannel(message.channel)
-  ) {
-    return;
-  }
-
-  // Clear all timers, we starting again here.
-  if (waitingTimeout) {
-    clearTimeout(waitingTimeout);
-    waitingTimeout = null;
-  }
-
-  if (conversationTimeout) {
-    clearTimeout(conversationTimeout);
-    conversationTimeout = null;
-  }
-
-  // Convert mentions to usernames before adding to history
-  const convertedContent = convertMentionsToUsernames(message.content, message);
-  addToChannelHistory({
-    author: message.author,
-    content: convertedContent,
-  });
-
-  const isMentioned = message.mentions.has(client.user.id);
-  if (
-    !isMentioned &&
-    (!lastInvolved || lastInvolved <= new Date().getTime() - 60000)
-  ) {
-    console.log(
-      "Not mentioned and last ping was longer than a minute, ignoring message: ",
-      message.content
-    );
-    return;
-  }
-
-  if (isMentioned) {
-    lastInvolved = new Date().getTime();
-  }
-
-  let content = message.content
-    .replace(new RegExp(`<@!?${client?.user?.id}>`, "g"), "")
-    .trim();
-
-  if (!content) {
-    console.log("No content after mention, ignoring message.");
-    return;
-  }
-
-  // Handle memory commands
-  if (content.startsWith("remember: ")) {
-    const memoryContent = content.substring("remember: ".length).trim();
-    try {
-      const embedding = await getEmbedding(memoryContent);
-      memoryStore.add(Date.now().toString(), embedding, memoryContent, {
-        author: message.author.id,
-        timestamp: Date.now(),
-      });
-      await message.channel.send("got it, i'll remember that");
-    } catch (error) {
-      console.error("Error storing memory:", error);
-      await message.channel.send("sorry, couldn't store that in my memory");
-    }
-    return;
-  }
-
-  if (content.startsWith("query: ")) {
-    const queryContent = content.substring("query: ".length).trim();
-    try {
-      const queryEmbedding = await getEmbedding(queryContent);
-      const results = memoryStore.query(queryEmbedding, 1);
-
-      if (results.length > 0 && results[0].score > 0.7) {
-        await message.channel.send(`this reminds me of: ${results[0].content}`);
-      } else {
-        await message.channel.send(
-          "hmm, nothing quite like that comes to mind"
-        );
-      }
-    } catch (error) {
-      console.error("Error querying memory:", error);
-      await message.channel.send("sorry, had trouble searching my memories");
-    }
-    return;
-  }
-
-  let prompt: string = `Conversation:\n`;
-
-  channelHistory.forEach((msg) => {
-    prompt += `${msg.author.username}: ${msg.content}\n`;
-  });
-
-  processMessageArgs = {
-    prompt,
-    channel: message.channel,
-  };
-
-  waitingTimeout = setTimeout(processMessage, 3000);
-});
-
-client.on("typingStart", (typing) => {
-  if (typing.user.id === client.user?.id || !processMessageArgs) {
-    return;
-  }
-
-  if (waitingTimeout) {
-    clearTimeout(waitingTimeout);
-    waitingTimeout = null;
-  }
-
-  waitingTimeout = setTimeout(processMessage, 3000);
-});
-
-client.login(BOT_TOKEN);
+  return members.length === 1 ? members[0] : undefined;
+}
