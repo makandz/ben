@@ -36,6 +36,19 @@ TypeScript Discord bot that wakes on a ping, batches recent human messages, and 
 
 The bot logs when it connects. It replies in the channel where the triggering message batch was received, and can route requested messages to another server channel by name. Ben stays active in one channel at a time; pings from other channels are queued until the current channel sleeps. Status messages such as wake, wait, sleep, and reasoning summaries are sent to `DISCORD_LOG_CHANNEL_ID` when configured.
 
+## Scheduled Messages
+
+Ben can schedule future messages from natural Discord requests, such as:
+
+```text
+ben remind me tomorrow at 9 to check the deploy
+ben every day at 6pm ask alex and priya if they're joining the call tonight
+```
+
+Scheduled messages require real target users. Ben validates usernames and channels before saving, stores resolved Discord user IDs and channel IDs, and persists schedules to JSON so they survive restarts. At send time, Ben posts the target user pings followed by the scheduled text.
+
+Supported repeats are one-time, daily, and weekly. Monthly schedules are intentionally not supported yet. Dates and times are interpreted in the configured bot timezone.
+
 ## Internal Actions
 
 The bot can run separate scheduled internal actions using their own prompt files under `src/prompts/internal/`.
@@ -62,6 +75,9 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 - `OPENAI_USAGE_LOG_DIR` defaults to `logs/openai-usage`. Usage is stored in monthly `YYMM.json` files with daily buckets.
 - `BOT_INTERNAL_STATE_PATH` defaults to `logs/internal-state.json`. Internal action state is stored separately from usage.
 - `BOT_KNOWN_PEOPLE_PATH` defaults to `logs/known-people.json`. The bot stores remembered Discord users and names there after validating them against the server.
+- `BOT_SCHEDULED_MESSAGES_PATH` defaults to `logs/scheduled-messages.json`. Scheduled messages are stored there.
+- `BOT_SCHEDULE_TIMEZONE` defaults to `America/Toronto`. Scheduled message dates and times are interpreted in this timezone.
+- `BOT_SCHEDULE_CHECK_INTERVAL_MS` defaults to `30000`. The scheduler checks for due messages on this interval.
 - `DISCORD_LOG_CHANNEL_ID` optionally enables internal action log lines, wake/wait/sleep status messages, and reasoning summaries in a dedicated Discord channel.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
 - `LOG_PROMPTS=true` logs full prompts at debug level.

@@ -45,6 +45,7 @@ export function buildUserPrompt(options: {
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
   currentActivityStatus?: string;
+  currentBotTime?: string;
   pingedByUsername?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
 }): string {
@@ -61,6 +62,12 @@ export function buildUserPrompt(options: {
 
   if (options.currentActivityStatus !== undefined) {
     sections.push(`Ben's current activity status is "${options.currentActivityStatus}".`);
+  }
+
+  if (options.currentBotTime !== undefined) {
+    sections.push(
+      `Current bot time: ${options.currentBotTime}. Scheduled message tool dates must be YYYY-MM-DD and times must be 24-hour HH:mm in the bot's local time.`,
+    );
   }
 
   if (options.pingedByUsername !== undefined) {

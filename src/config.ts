@@ -14,6 +14,7 @@ export interface AppConfig {
   internalStatePath: string;
   conversationSummaryPath: string;
   knownPeoplePath: string;
+  scheduledMessagesPath: string;
   discordLogChannelId: string | undefined;
   logLevel: LogLevel;
   logPrompts: boolean;
@@ -21,6 +22,8 @@ export interface AppConfig {
   typingDebounceMs: number;
   idleSleepMs: number;
   internalActionIntervalMs: number;
+  scheduleCheckIntervalMs: number;
+  scheduleTimezone: string;
 }
 
 const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -74,6 +77,8 @@ export function loadConfig(): AppConfig {
     conversationSummaryPath:
       process.env.BOT_CONVERSATION_SUMMARY_PATH ?? "logs/conversation-summaries.json",
     knownPeoplePath: process.env.BOT_KNOWN_PEOPLE_PATH ?? "logs/known-people.json",
+    scheduledMessagesPath:
+      process.env.BOT_SCHEDULED_MESSAGES_PATH ?? "logs/scheduled-messages.json",
     discordLogChannelId: process.env.DISCORD_LOG_CHANNEL_ID,
     logLevel: readLogLevel(),
     logPrompts: process.env.LOG_PROMPTS === "true",
@@ -84,5 +89,7 @@ export function loadConfig(): AppConfig {
       "BOT_INTERNAL_ACTION_INTERVAL_MS",
       24 * 60 * 60 * 1_000,
     ),
+    scheduleCheckIntervalMs: readNumberEnv("BOT_SCHEDULE_CHECK_INTERVAL_MS", 30_000),
+    scheduleTimezone: process.env.BOT_SCHEDULE_TIMEZONE ?? "America/Toronto",
   };
 }
