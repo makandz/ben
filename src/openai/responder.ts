@@ -13,6 +13,7 @@ import { loadSystemPrompt } from "./systemPrompt.js";
 import type {
   ApiMemory,
   BotToolExecutor,
+  CreateScheduledMessageToolInput,
   RememberPersonToolInput,
   ResponderResult,
   SendChannelMessageToolInput,
@@ -69,7 +70,7 @@ export class OpenAIResponder {
         };
       }
 
-      for (let toolIteration = 0; toolIteration < 4; toolIteration += 1) {
+      for (let toolIteration = 0; toolIteration < 5; toolIteration += 1) {
         const input: ResponseInputItem[] = [...memory, ...turnItems];
         const response = await this.client.responses.create({
           model: this.config.openaiModel,
@@ -133,6 +134,16 @@ export class OpenAIResponder {
 
         if (toolCall.name === "remember_person") {
           const result = await executeRememberPersonTool(toolCall, toolExecutor, this.logger);
+          turnItems.push(createFunctionCallOutput(toolCall, result));
+          continue;
+        }
+
+        if (toolCall.name === "create_scheduled_message") {
+          const result = await executeCreateScheduledMessageTool(
+            toolCall,
+            toolExecutor,
+            this.logger,
+          );
           turnItems.push(createFunctionCallOutput(toolCall, result));
           continue;
         }
@@ -254,6 +265,54 @@ const botControlTools = [
   },
   {
     type: "function",
+    name: "create_scheduled_message",
+    description:
+      "Non-terminal action. Schedule Ben to send a message at a specific future bot-local date and time, optionally repeating daily or weekly. Use only when the user clearly asks Ben to remind, ask, or ping real users later. After this succeeds or fails, continue with send_message, wait_for_more_messages, or sleep_conversation.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        message: {
+          type: "string",
+          description:
+            "The message Ben should send later, without leading pings. Must be 1-1000 characters.",
+        },
+        target_usernames: {
+          type: "array",
+          description:
+            "Discord usernames to ping when sending. Use real user names only. Do not include @everyone, @here, roles, or empty strings.",
+          items: {
+            type: "string",
+          },
+        },
+        channel: {
+          type: ["string", "null"],
+          description:
+            "Target channel name, with or without #. Use null for the current channel.",
+        },
+        run_date: {
+          type: "string",
+          description:
+            "First run date in YYYY-MM-DD using the bot's current local date from the prompt.",
+        },
+        run_time: {
+          type: "string",
+          description:
+            "First run time in 24-hour HH:mm using the bot's current local time from the prompt.",
+        },
+        repeat: {
+          type: "string",
+          enum: ["none", "daily", "weekly"],
+          description:
+            "Use none for one-time schedules, daily for every day, or weekly for every week anchored to run_date.",
+        },
+      },
+      required: ["message", "target_usernames", "channel", "run_date", "run_time", "repeat"],
+    },
+  },
+  {
+    type: "function",
     name: "wait_for_more_messages",
     description:
       "Terminal action. Stay awake and wait for follow-up messages without sending a text response. Execution pauses until new human messages arrive.",
@@ -298,6 +357,7 @@ const botControlTools = [
 
 type BotControlToolName =
   | "remember_person"
+  | "create_scheduled_message"
   | "send_message"
   | "wait_for_more_messages"
   | "sleep_conversation";
@@ -312,6 +372,7 @@ function isBotControlToolName(name: string): name is BotControlToolName {
   return (
     name === "send_message" ||
     name === "remember_person" ||
+    name === "create_scheduled_message" ||
     name === "wait_for_more_messages" ||
     name === "sleep_conversation"
   );
@@ -379,6 +440,37 @@ async function executeSendChannelMessageTool(
       channel: result.channel,
     };
   }
+
+  return result;
+}
+
+async function executeCreateScheduledMessageTool(
+  toolCall: ResponseFunctionToolCall,
+  toolExecutor: BotToolExecutor,
+  logger: Logger,
+): Promise<Record<string, unknown>> {
+  const input = parseCreateScheduledMessageAction(toolCall);
+
+  if (input.message.length === 0 || input.message.length > 1_000) {
+    logger.warn("openai.invalid_create_scheduled_message_text", {
+      chars: input.message.length,
+    });
+    return {
+      ok: false,
+      error: "scheduled message must be 1-1000 characters",
+    };
+  }
+
+  if (input.targetUsernames.length === 0) {
+    logger.warn("openai.create_scheduled_message_missing_targets");
+    return {
+      ok: false,
+      error: "scheduled message requires at least one real target username",
+    };
+  }
+
+  const result = await toolExecutor.createScheduledMessage(input);
+  logger.info("openai.create_scheduled_message_result", result);
 
   return result;
 }
@@ -575,6 +667,56 @@ function parseRememberPersonAction(toolCall: ResponseFunctionToolCall): Remember
     username: typeof args.username === "string" ? trimUsername(args.username) : "",
     name: typeof args.name === "string" ? args.name.trim() : "",
   };
+}
+
+function parseCreateScheduledMessageAction(
+  toolCall: ResponseFunctionToolCall,
+): CreateScheduledMessageToolInput {
+  const args = parseFunctionArguments(toolCall.arguments);
+
+  return {
+    message: typeof args.message === "string" ? args.message.trim() : "",
+    targetUsernames: parseTargetUsernames(args.target_usernames),
+    channel:
+      typeof args.channel === "string" && args.channel.trim().length > 0
+        ? args.channel.trim().replace(/^#+/, "")
+        : null,
+    runDate: typeof args.run_date === "string" ? args.run_date.trim() : "",
+    runTime: typeof args.run_time === "string" ? args.run_time.trim() : "",
+    repeat: parseScheduleRepeat(args.repeat),
+  };
+}
+
+function parseTargetUsernames(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const usernames = new Set<string>();
+
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const username = trimUsername(item);
+
+    if (username.length === 0) {
+      continue;
+    }
+
+    usernames.add(username);
+  }
+
+  return [...usernames];
+}
+
+function parseScheduleRepeat(value: unknown): CreateScheduledMessageToolInput["repeat"] {
+  if (value === "daily" || value === "weekly") {
+    return value;
+  }
+
+  return "none";
 }
 
 function trimUsername(username: string): string {

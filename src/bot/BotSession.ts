@@ -8,10 +8,13 @@ import type {
   ResponderResult,
   SendChannelMessageToolInput,
   SendChannelMessageToolResult,
+  CreateScheduledMessageToolInput,
+  CreateScheduledMessageToolResult,
 } from "../openai/types.js";
 import type { ConversationSummaryStore } from "./conversationSummaryStore.js";
 import { buildUserPrompt } from "./formatMessages.js";
 import type { KnownPeopleStore } from "./knownPeopleStore.js";
+import { formatBotTime } from "./scheduleTime.js";
 import type { BotMode, HumanMessage } from "./types.js";
 
 type SendMessageToChannel = (channelId: string, text: string) => Promise<void>;
@@ -28,6 +31,11 @@ type SendChannelMessage = (
   input: SendChannelMessageToolInput,
   activeChannelId: string | undefined,
 ) => Promise<SendChannelMessageToolResult>;
+type CreateScheduledMessage = (
+  input: CreateScheduledMessageToolInput,
+  activeChannelId: string | undefined,
+  createdBy: HumanMessage | undefined,
+) => Promise<CreateScheduledMessageToolResult>;
 
 interface TypingActivity {
   expiresAt: number;
@@ -66,6 +74,7 @@ export class BotSession {
     private readonly knownPeopleStore: KnownPeopleStore,
     private readonly rememberPerson: RememberPerson,
     private readonly sendChannelMessage: SendChannelMessage,
+    private readonly createScheduledMessage: CreateScheduledMessage,
     private readonly logger: Logger,
   ) {}
 
@@ -374,6 +383,7 @@ export class BotSession {
       knownPeople,
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
+      currentBotTime: formatBotTime(new Date(), this.config.scheduleTimezone),
     };
 
     if (currentActivityStatus !== undefined) {
@@ -412,6 +422,8 @@ export class BotSession {
 
           return result;
         },
+        createScheduledMessage: (input) =>
+          this.createScheduledMessage(input, responseChannelId, messages[0]),
       });
       await this.handleResponderResult(result, responseChannelId, reactionTargetMessageId);
     } finally {
