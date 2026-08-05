@@ -1,0 +1,27 @@
+{
+	"name": "ben",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx watch src/index.ts",
+		"lint": "oxlint src",
+		"lint:fix": "oxlint src --fix",
+		"start": "node dist/index.js",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"discord.js": "^14.27.0",
+		"dotenv": "^17.4.2",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/node": "^26.1.2",
+		"oxlint": "^1.77.0",
+		"tsx": "^4.23.5",
+		"typescript": "^7.0.2"
+	},
+	"engines": {
+		"node": ">=20"
+	}
+}
