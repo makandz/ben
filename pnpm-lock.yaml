@@ -14,6 +14,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      openai:
+        specifier: ^7.4.0
+        version: 7.4.0(ws@8.21.2)(zod@4.4.3)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -514,6 +517,27 @@ packages:
   magic-bytes.js@1.13.1:
     resolution: {integrity: sha512-x5sn4UX2k5gCWlcfmoFwG4TPie8+dctESyqOBdhB5p6MsgWXdBKGmt9nXPObj/JI50TTL928lc5Yt1WntMn1bw==}
 
+  openai@7.4.0:
+    resolution: {integrity: sha512-+C9Muit5x8j9R8ej8ZzVgKcrVDtqFqTy9gxFdov0EItLgU68zrJtF9ZeT0cyqJQW9S3PCJkdFgADtRGquRBtew==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   oxlint@1.77.0:
     resolution: {integrity: sha512-qnGh8XJHaQ0dprrDXNQZgS0FgjI6v+V3+X8DwmaV++5Aamy6jGKfDdQ1TUvhUxtmKFAbEf4/WeO5QZX+5WSngg==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -892,6 +916,11 @@ snapshots:
   lodash@4.18.1: {}
 
   magic-bytes.js@1.13.1: {}
+
+  openai@7.4.0(ws@8.21.2)(zod@4.4.3):
+    optionalDependencies:
+      ws: 8.21.2
+      zod: 4.4.3
 
   oxlint@1.77.0:
     optionalDependencies:

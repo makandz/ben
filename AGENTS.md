@@ -1,4 +1,4 @@
-Ben is a TypeScript Discord bot that uses the Vercel AI SDK. It is a small side project made for fun on a private Discord server.
+Ben is a TypeScript Discord bot that uses the official OpenAI SDK. It is a small side project made for fun on a private Discord server.
 
 ## Workflow
 
@@ -12,3 +12,9 @@ Ben is a TypeScript Discord bot that uses the Vercel AI SDK. It is a small side 
 - Do not over-engineer.
 - Prefer the architecture that makes the most sense rather than blindly following existing patterns.
 - The project currently has no tests.
+
+### Documentation
+
+- Put a documentation comment directly above every function and method.
+- Exported functions and public interface methods must use full JSDoc with `@param` and `@returns` tags.
+- Internal helpers and callbacks may use a concise single-line `/** ... */` comment.
