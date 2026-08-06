@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const systemPromptUrls = {
-	ben: new URL("../../prompts/ben.txt", import.meta.url),
+  ben: new URL("../../prompts/ben.txt", import.meta.url),
 } as const;
 
 export type SystemPromptName = keyof typeof systemPromptUrls;
@@ -13,11 +13,11 @@ export type SystemPromptName = keyof typeof systemPromptUrls;
  * @returns The trimmed contents of the system prompt.
  */
 export async function loadSystemPrompt(name: SystemPromptName): Promise<string> {
-	const prompt = (await readFile(systemPromptUrls[name], "utf8")).trim();
+  const prompt = (await readFile(systemPromptUrls[name], "utf8")).trim();
 
-	if (!prompt) {
-		throw new Error(`System prompt is empty: ${name}`);
-	}
+  if (!prompt) {
+    throw new Error(`System prompt is empty: ${name}`);
+  }
 
-	return prompt;
+  return prompt;
 }
