@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json",
     "start": "node dist/index.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck:next": "tsc --project tsconfig.next.json --noEmit",
+    "test:next": "node --import tsx --test src-next/**/*.test.ts"
   },
   "engines": {
     "node": ">=20"
