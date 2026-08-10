@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 2 — completed; Phase 3 not started
+- Current phase: Phase 3 — completed; Phase 4 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–2 only)
+- Replacement implementation: `src-next` (Phases 1–3 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -382,13 +382,30 @@ Done when the complete conversation/tool loop runs through fakes without OpenAI 
 
 ### Phase 3 — OpenAI adapter and usage
 
-Status: Not started
+Status: Complete
 
-- [ ] Translate application requests/history/tools into Responses API requests.
-- [ ] Translate text, reasoning, tool calls, and continuation data back into application types.
-- [ ] Port usage persistence, pricing, reasoning summaries, and budget enforcement.
-- [ ] Use local constants for models and provider request limits.
-- [ ] Cover translations and existing usage shapes with fixtures; make no live API calls.
+- [x] Translate application requests/history/tools into Responses API requests.
+- [x] Translate text, reasoning, tool calls, and continuation data back into application types.
+- [x] Port usage persistence, pricing, reasoning summaries, and budget enforcement.
+- [x] Use local constants for models and provider request limits.
+- [x] Cover translations and existing usage shapes with fixtures; make no live API calls.
+
+Completed on 2026-08-10:
+
+- `OpenAIModel` performs one stateless Responses API request per invocation, requires one generic
+  registered function call, disables parallel calls, records returned usage, and checks the shared
+  daily budget before contacting the provider through a provider-neutral application error.
+- `OpenAIMapper` translates only provider-neutral history and tool definitions. It privately
+  associates portable reasoning items with encrypted continuation payloads so OpenAI SDK data does
+  not enter application contracts.
+- `OpenAIUsageStore` reads the existing monthly JSON shape, rejects malformed totals, writes
+  atomically, prices cached/uncached/output tokens by the model used for each request, and treats a
+  zero daily budget as unlimited.
+- Conversation and internal model names and the conversation output-token limit are local constants
+  under `model/openai`; the adapter contains no Ben-specific tool names.
+- The replacement suite now has 43 passing tests, including request/response translation, reasoning
+  continuation, malformed tool arguments, budget blocking, current usage fixtures, atomic writes,
+  and usage aggregation. No live API calls are made.
 
 Done when OpenAI types remain inside `model/openai` and the adapter knows no Ben tool names.
 
@@ -502,6 +519,8 @@ Done when one verified `src` remains and all normal scripts target it.
 - Keep this one living plan rather than separate planning systems.
 - Use portable conversation history only; provider-specific continuation state remains inside an
   adapter and is not required by the application contract.
+- Associate OpenAI encrypted reasoning continuations with in-memory portable reasoning items inside
+  `OpenAIMapper`; omit continuation data when history did not originate from that adapter instance.
 
 ## Open questions
 
