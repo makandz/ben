@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 1 — completed; Phase 2 not started
+- Current phase: Phase 2 — completed; Phase 3 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (isolated scaffold only)
+- Replacement implementation: `src-next` (Phases 1–2 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -357,14 +357,26 @@ Done when `src-next` type-checks and tests independently without starting either
 
 ### Phase 2 — Application contracts and conversation core
 
-Status: Not started
+Status: Complete
 
-- [ ] Define normalized messages, history, model turns, tools, outcomes, and usage.
-- [ ] Define narrow `Model`, `Tool`, and `ChatTransport` contracts.
-- [ ] Port pure scheduling, prompt, mention-safe, emoji, and pricing behavior with tests.
-- [ ] Implement `ToolRegistry` and terminal conversation controls.
-- [ ] Implement and test the provider-neutral `ConversationOrchestrator`.
-- [ ] Resolve portable history versus opaque provider continuation state.
+- [x] Define normalized messages, history, model turns, tools, outcomes, and usage.
+- [x] Define narrow `Model`, `Tool`, and `ChatTransport` contracts.
+- [x] Port pure scheduling, prompt, mention-safe, emoji, and pricing behavior with tests.
+- [x] Implement `ToolRegistry` and terminal conversation controls.
+- [x] Implement and test the provider-neutral `ConversationOrchestrator`.
+- [x] Resolve portable history versus opaque provider continuation state.
+
+Completed on 2026-08-10:
+
+- Application history is fully portable and contains normalized messages, reasoning, tool calls,
+  and tool results. Opaque provider continuation state is not part of the application contract.
+- The orchestrator enforces one tool call per turn, loops through capability tools, returns terminal
+  reply/react/wait/sleep outcomes, reports tool failures to the model, and bounds iterations.
+- Tests cover the conversation loop, terminal behavior, scheduling and DST handling, prompt
+  formatting, broadcast safety, emoji validation, and token pricing.
+- Review corrections restored the existing readable TypeScript style and full pricing table, added
+  JSDoc to public APIs, ensured unexpected tool calls receive matching failure results, and expanded
+  the Phase 2 suite to 33 tests.
 
 Done when the complete conversation/tool loop runs through fakes without OpenAI or Discord.
 
@@ -481,16 +493,18 @@ Done when one verified `src` remains and all normal scripts target it.
 - Use local constants rather than a global settings file.
 - Keep the six-variable environment contract.
 - Begin with Node's test runner, co-located tests, and no coverage target.
-- Run TypeScript tests with `node --import tsx --test src-next/**/*.test.ts`.
+- Keep tests in co-located `__tests__` directories and run them with
+  `node --import tsx --test src-next/__tests__/*.test.ts src-next/*/__tests__/*.test.ts`.
 - Keep prompt copies under `src-next/prompts` during the parallel migration; remove the duplicate
   production assets only during the approved cutover.
 - Prefer small fakes at owned boundaries over SDK mocks.
 - Treat file-size thresholds as review prompts, not rules.
 - Keep this one living plan rather than separate planning systems.
+- Use portable conversation history only; provider-specific continuation state remains inside an
+  adapter and is not required by the application contract.
 
 ## Open questions
 
-- Portable conversation items only, or optional opaque OpenAI continuation state?
 - Same `Model` interface for internal actions, or a narrower operation?
 - Copied prompts in `src-next`, or neutral root-level prompt assets?
 - Presence inside `ChatTransport`, or a separate small capability?

@@ -1,0 +1,24 @@
+import type { ConversationItem, TokenUsage } from "../app/types.js";
+import type { ToolDefinition } from "../tools/Tool.js";
+
+export type ModelRequest = {
+  instructions: string;
+  history: readonly ConversationItem[];
+  tools: readonly ToolDefinition[];
+};
+
+export type ModelTurn = {
+  items: ConversationItem[];
+  reasoningSummary?: string;
+  usage?: TokenUsage;
+};
+
+export type Model = {
+  /**
+   * Performs one model interaction.
+   *
+   * @param request - The provider-neutral request to translate and execute.
+   * @returns The provider's response translated into portable conversation items.
+   */
+  invoke(request: ModelRequest): Promise<ModelTurn>;
+};

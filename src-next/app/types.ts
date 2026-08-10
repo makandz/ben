@@ -1,0 +1,30 @@
+export type HumanMessage = {
+  id: string;
+  channelId: string;
+  userId: string;
+  username: string;
+  content: string;
+  createdAt: number;
+};
+
+export type ConversationItem =
+  | { type: "message"; role: "user" | "assistant"; text: string }
+  | { type: "reasoning"; text: string }
+  | { type: "tool_call"; callId: string; name: string; arguments: unknown }
+  | { type: "tool_result"; callId: string; result: unknown };
+
+export type ToolCall = Extract<ConversationItem, { type: "tool_call" }>;
+
+export type TokenUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+export type ConversationOutcome =
+  | { type: "reply"; text: string; reaction?: string; reasoningSummary?: string; history: ConversationItem[] }
+  | { type: "react"; reaction: string; reasoningSummary?: string; history: ConversationItem[] }
+  | { type: "wait"; history: ConversationItem[] }
+  | { type: "sleep"; summary: string; text?: string; reaction?: string }
+  | { type: "failed"; error: unknown };
