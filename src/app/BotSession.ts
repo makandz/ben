@@ -1,6 +1,7 @@
 import type { Logger } from "../logger.js";
 import { ModelBudgetExceededError } from "../model/Model.js";
 import { buildUserPrompt, type KnownPeople } from "../prompts/formatMessages.js";
+import { formatUsd } from "../util/formatCurrency.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "./types.js";
@@ -538,8 +539,4 @@ export class BotSession {
     this.idleTimer = undefined;
     this.typingTimer = undefined;
   }
-}
-
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
 }

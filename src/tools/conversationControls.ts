@@ -35,46 +35,6 @@ function validationFailure(error: string): ToolResult {
   return { type: "continue", result: { ok: false, error } };
 }
 
-/** Terminal tool that sends a message, a reaction, or both. */
-export const replyTool: Tool = {
-  definition: {
-    name: "send_message",
-    description: "Send a message and/or react, then wait for more messages.",
-    parameters: createObjectSchema({ text: nullableString, reaction: nullableString }, [
-      "text",
-      "reaction",
-    ]),
-  },
-  async execute(call) {
-    const input = parseArguments(call.arguments);
-    const message = parseValue(input.text);
-    const reaction = parseValue(input.reaction);
-
-    if (reaction.length > 0 && !isSingleUnicodeEmoji(reaction)) {
-      return validationFailure("reaction must be exactly one standard Unicode emoji");
-    }
-
-    if (message.length === 0 && reaction.length === 0) {
-      return validationFailure("text or reaction is required");
-    }
-
-    const outcome =
-      message.length > 0
-        ? {
-            type: "reply" as const,
-            text: message,
-            ...(reaction.length > 0 ? { reaction } : {}),
-          }
-        : { type: "react" as const, reaction };
-
-    return {
-      type: "finish",
-      result: { ok: true, pausedUntil: "new_human_message" },
-      outcome,
-    };
-  },
-};
-
 /** Terminal tool that keeps conversation state while awaiting another message. */
 export const waitTool: Tool = {
   definition: {
@@ -131,5 +91,3 @@ export const sleepTool: Tool = {
     };
   },
 };
-
-export const conversationControlTools = [replyTool, waitTool, sleepTool] as const;

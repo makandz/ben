@@ -4,7 +4,13 @@ import type { Tool, ToolResult } from "../../tools/Tool.js";
 import { isSingleUnicodeEmoji } from "../../util/emoji.js";
 import { ChannelMentionDirectory, findMatchingChannel } from "../DiscordDirectory.js";
 import type { DiscordGateway } from "../DiscordGateway.js";
-import { escapeBroadcastMentions } from "../mentions.js";
+import {
+  parseArguments,
+  sanitizeChannelName,
+  sanitizeText,
+  sendToolStatus,
+  toolFailure,
+} from "./toolSupport.js";
 
 export type SendMessageToolDependencies = {
   gateway: DiscordGateway;
@@ -52,9 +58,10 @@ function executeCurrentChannel(input: Record<string, unknown>): ToolResult {
   const text = sanitizeText(input.text);
   const reaction = sanitizeText(input.reaction);
   if (reaction.length > 0 && !isSingleUnicodeEmoji(reaction)) {
-    return failure("reaction must be exactly one standard Unicode emoji");
+    return toolFailure("reaction must be exactly one standard Unicode emoji");
   }
-  if (text.length === 0 && reaction.length === 0) return failure("text or reaction is required");
+  if (text.length === 0 && reaction.length === 0)
+    return toolFailure("text or reaction is required");
 
   return {
     type: "finish",
@@ -75,19 +82,15 @@ async function executeCrossChannel(
   const activeChannelId = dependencies.getActiveChannelId();
   const fail = async (error: string): Promise<ToolResult> => {
     if (activeChannelId !== undefined) {
-      await dependencies.gateway
-        .sendMessage(
-          activeChannelId,
-          escapeBroadcastMentions(`> ⚠️ Failed to send message to #${channelName}: ${error}`),
-          { allowUserMentions: false },
-        )
-        .catch((statusError: unknown) => {
-          dependencies.logger.warn("discord.cross_channel_send_status_failed", {
-            error: String(statusError),
-          });
-        });
+      await sendToolStatus(
+        dependencies.gateway,
+        dependencies.logger,
+        "discord.cross_channel_send_status_failed",
+        activeChannelId,
+        `> ⚠️ Failed to send message to #${channelName}: ${error}`,
+      );
     }
-    return failure(error);
+    return toolFailure(error);
   };
 
   if (text.length === 0) return fail("message text must be non-empty");
@@ -113,26 +116,4 @@ async function executeCrossChannel(
   } catch (error) {
     return fail(String(error));
   }
-}
-
-/** Creates a continuing model-readable failure. */
-function failure(error: string): ToolResult {
-  return { type: "continue", result: { ok: false, error } };
-}
-
-/** Narrows unknown model arguments to a record. */
-function parseArguments(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/** Reads and trims a string argument. */
-function sanitizeText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-/** Normalizes a channel name for exact lookup. */
-function sanitizeChannelName(value: unknown): string {
-  return sanitizeText(value).replace(/^#+/, "").trim().toLowerCase();
 }

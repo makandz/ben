@@ -5,7 +5,7 @@ import { ConversationOrchestrator } from "../ConversationOrchestrator.js";
 import { ScriptedModel } from "../../testing/ScriptedModel.js";
 import type { Tool } from "../../tools/Tool.js";
 import { ToolRegistry } from "../../tools/ToolRegistry.js";
-import { conversationControlTools } from "../../tools/conversationControls.js";
+import { sleepTool, waitTool } from "../../tools/conversationControls.js";
 
 function createToolCall(callId: string, name: string, argumentsValue: unknown) {
   return {
@@ -27,6 +27,16 @@ test("loops through a capability tool and finishes with portable history", async
       return { type: "continue", result: { found: true } };
     },
   };
+  const sendMessage: Tool = {
+    definition: { name: "send_message", description: "Replies.", parameters: {} },
+    async execute() {
+      return {
+        type: "finish",
+        result: { ok: true, pausedUntil: "new_human_message" },
+        outcome: { type: "reply", text: "hey", reaction: "👍" },
+      };
+    },
+  };
   const model = new ScriptedModel([
     { items: [createToolCall("1", "lookup", {})] },
     {
@@ -37,7 +47,7 @@ test("loops through a capability tool and finishes with portable history", async
       reasoningSummary: "A greeting is useful.",
     },
   ]);
-  const registry = new ToolRegistry([capability, ...conversationControlTools]);
+  const registry = new ToolRegistry([capability, sendMessage, waitTool, sleepTool]);
   const orchestrator = new ConversationOrchestrator(model, registry);
 
   const result = await orchestrator.run("system prompt", [], "hello");
@@ -66,10 +76,7 @@ test("loops through a capability tool and finishes with portable history", async
 test("preserves prior history without mutating the caller's array", async () => {
   const history = [{ type: "message" as const, role: "assistant" as const, text: "earlier" }];
   const model = new ScriptedModel([{ items: [createToolCall("1", "wait_for_more_messages", {})] }]);
-  const orchestrator = new ConversationOrchestrator(
-    model,
-    new ToolRegistry(conversationControlTools),
-  );
+  const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([waitTool, sleepTool]));
 
   await orchestrator.run("system prompt", history, "new message");
 
@@ -85,10 +92,7 @@ test("returns model-readable failures for unknown tools before continuing", asyn
     { items: [createToolCall("1", "unknown", {})] },
     { items: [createToolCall("2", "wait_for_more_messages", {})] },
   ]);
-  const orchestrator = new ConversationOrchestrator(
-    model,
-    new ToolRegistry(conversationControlTools),
-  );
+  const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([waitTool, sleepTool]));
 
   const result = await orchestrator.run("system prompt", [], "hello");
 
@@ -109,10 +113,7 @@ test("resolves every unexpected tool call with a failure result", async () => {
       ],
     },
   ]);
-  const orchestrator = new ConversationOrchestrator(
-    model,
-    new ToolRegistry(conversationControlTools),
-  );
+  const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([waitTool, sleepTool]));
 
   const result = await orchestrator.run("system prompt", [], "hello");
 

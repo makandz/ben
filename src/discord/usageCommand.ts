@@ -1,5 +1,6 @@
 import type { Logger } from "../logger.js";
 import type { OpenAIUsageStore, UsageSummary } from "../model/openai/OpenAIUsageStore.js";
+import { formatUsd } from "../util/formatCurrency.js";
 import type { DiscordCommandEvent, DiscordGateway } from "./DiscordGateway.js";
 
 export const usageCommand = {
@@ -51,10 +52,6 @@ export async function handleUsageCommand(
  */
 export function formatUsageSummary(summary: UsageSummary): string {
   return `${formatInteger(summary.inputTokens)}/${formatInteger(summary.cachedInputTokens)}/${formatInteger(summary.outputTokens)} (input/cached/output) - ${formatUsd(summary.costUsd)} (${formatUsagePercent(summary)}) - ${summary.model}`;
-}
-
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
 }
 
 function formatInteger(value: number): string {

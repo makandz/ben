@@ -3,7 +3,7 @@ import type { KnownPeopleStore } from "../../storage/KnownPeopleStore.js";
 import type { Tool, ToolResult } from "../../tools/Tool.js";
 import { findMatchingMember, UserMentionDirectory } from "../DiscordDirectory.js";
 import type { DiscordGateway } from "../DiscordGateway.js";
-import { escapeBroadcastMentions } from "../mentions.js";
+import { parseArguments, sanitizeText, sendToolStatus, toolFailure } from "./toolSupport.js";
 
 export type RememberPersonToolDependencies = {
   gateway: DiscordGateway;
@@ -37,16 +37,18 @@ export function createRememberPersonTool(dependencies: RememberPersonToolDepende
     },
     async execute(call) {
       const input = parseArguments(call.arguments);
-      const username = sanitizeText(input.username).replace(/^@+/, "");
-      const name = sanitizeText(input.name);
+      const username = sanitizeText(input.username, true).replace(/^@+/, "");
+      const name = sanitizeText(input.name, true);
       const channelId = dependencies.getActiveChannelId();
       const fail = async (error: string): Promise<ToolResult> => {
-        await sendStatus(
-          dependencies,
+        await sendToolStatus(
+          dependencies.gateway,
+          dependencies.logger,
+          "discord.remember_status_failed",
           channelId,
           `> ⚠️ Failed to remember "${username}" as "${name}": ${error}`,
         );
-        return { type: "continue", result: { ok: false, error } };
+        return toolFailure(error);
       };
 
       if (username.length === 0 || name.length === 0) {
@@ -72,8 +74,10 @@ export function createRememberPersonTool(dependencies: RememberPersonToolDepende
         });
         if (!result.ok) return await fail(result.error);
 
-        await sendStatus(
-          dependencies,
+        await sendToolStatus(
+          dependencies.gateway,
+          dependencies.logger,
+          "discord.remember_status_failed",
           channelId,
           `> 🧠 Remembering that "${result.username}" is "${result.name}"`,
         );
@@ -83,35 +87,4 @@ export function createRememberPersonTool(dependencies: RememberPersonToolDepende
       }
     },
   };
-}
-
-/** Sends a user-visible capability status while containing status failures. */
-async function sendStatus(
-  dependencies: Pick<RememberPersonToolDependencies, "gateway" | "logger">,
-  channelId: string | undefined,
-  text: string,
-): Promise<void> {
-  if (channelId === undefined) {
-    dependencies.logger.warn("discord.remember_status_failed", { error: "Missing channel ID" });
-    return;
-  }
-  await dependencies.gateway
-    .sendMessage(channelId, escapeBroadcastMentions(text), {
-      allowUserMentions: false,
-    })
-    .catch((error: unknown) => {
-      dependencies.logger.warn("discord.remember_status_failed", { error: String(error) });
-    });
-}
-
-/** Narrows unknown model arguments to a record. */
-function parseArguments(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/** Trims and collapses whitespace in a model string argument. */
-function sanitizeText(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }

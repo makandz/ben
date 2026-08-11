@@ -49,7 +49,7 @@ export class DiscordAdapter {
     private readonly handlers: DiscordInputHandlers,
     private readonly users: UserMentionDirectory,
     private readonly channels: ChannelMentionDirectory,
-    private readonly logger: Pick<Logger, "info" | "error">,
+    logger: Pick<Logger, "info" | "error">,
   ) {
     gateway.setHandlers({
       ready: (user) => {

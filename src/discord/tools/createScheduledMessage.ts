@@ -15,7 +15,13 @@ import {
   UserMentionDirectory,
 } from "../DiscordDirectory.js";
 import type { DiscordGateway } from "../DiscordGateway.js";
-import { escapeBroadcastMentions } from "../mentions.js";
+import {
+  parseArguments,
+  sanitizeChannelName,
+  sanitizeText,
+  sendToolStatus,
+  toolFailure,
+} from "./toolSupport.js";
 
 export type ScheduledMessageCreator = {
   userId: string;
@@ -74,7 +80,7 @@ async function executeSchedule(
   dependencies: CreateScheduledMessageToolDependencies,
   input: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const message = sanitizeText(input.message);
+  const message = sanitizeText(input.message, true);
   const targetUsernames = parseTargetUsernames(input.target_usernames);
   const channelName = sanitizeChannelName(input.channel);
   const runDate = typeof input.run_date === "string" ? input.run_date.trim() : "";
@@ -83,12 +89,14 @@ async function executeSchedule(
   const activeChannelId = dependencies.getActiveChannelId();
   const creator = dependencies.getCreator();
   const fail = async (error: string): Promise<ToolResult> => {
-    await sendCreationStatus(
-      dependencies,
+    await sendToolStatus(
+      dependencies.gateway,
+      dependencies.logger,
+      "discord.schedule_status_failed",
       activeChannelId,
       `> ⚠️ Failed to schedule message: ${error}`,
     );
-    return failure(error);
+    return toolFailure(error);
   };
 
   if (message.length === 0 || message.length > 1_000) {
@@ -155,7 +163,13 @@ async function executeSchedule(
       createdByUserId: creator.userId,
       createdByUsername: creator.username,
     });
-    await sendCreationStatus(dependencies, activeChannelId, formatCreatedStatus(scheduled));
+    await sendToolStatus(
+      dependencies.gateway,
+      dependencies.logger,
+      "discord.schedule_status_failed",
+      activeChannelId,
+      formatCreatedStatus(scheduled),
+    );
     await dependencies.status
       .logStatus(
         `Created scheduled message ${scheduled.id} for #${scheduled.channelName} at ${scheduled.nextRunAt} (${scheduled.repeat}).`,
@@ -210,53 +224,12 @@ async function resolveTargets(
   return targets;
 }
 
-/** Sends a user-visible creation status while containing status failures. */
-async function sendCreationStatus(
-  dependencies: Pick<CreateScheduledMessageToolDependencies, "gateway" | "logger">,
-  channelId: string | undefined,
-  text: string,
-): Promise<void> {
-  if (channelId === undefined) {
-    dependencies.logger.warn("discord.schedule_status_failed", { error: "Missing channel ID" });
-    return;
-  }
-  await dependencies.gateway
-    .sendMessage(channelId, escapeBroadcastMentions(text), {
-      allowUserMentions: false,
-    })
-    .catch((error: unknown) => {
-      dependencies.logger.warn("discord.schedule_status_failed", { error: String(error) });
-    });
-}
-
 /** Formats the successful status displayed in the active conversation. */
 function formatCreatedStatus(message: ScheduledMessage): string {
   const targets = message.targetUsers.map((target) => `@${target.username}`).join(", ");
   const repeat =
     message.repeat === "none" ? "once" : `every ${message.repeat === "daily" ? "day" : "week"}`;
   return `> ⏰ Scheduled ${repeat} for ${message.runDate} at ${message.runTime} to ${targets}`;
-}
-
-/** Creates a continuing model-readable failure. */
-function failure(error: string): ToolResult {
-  return { type: "continue", result: { ok: false, error } };
-}
-
-/** Narrows unknown model arguments to a record. */
-function parseArguments(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-/** Reads, trims, and collapses whitespace in message text. */
-function sanitizeText(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
-}
-
-/** Normalizes an optional channel name for exact lookup. */
-function sanitizeChannelName(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/^#+/, "").trim().toLowerCase() : "";
 }
 
 /** Parses unique non-empty usernames in encounter order. */
