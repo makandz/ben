@@ -8,7 +8,7 @@ import type { DiscordGateway } from "../discord/DiscordGateway.js";
 import { DiscordPresence } from "../discord/DiscordPresence.js";
 import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDelivery.js";
 import { DiscordTransport } from "../discord/DiscordTransport.js";
-import { handleUsageCommand, registerUsageCommand } from "../discord/UsageCommand.js";
+import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
 import { createRememberPersonTool } from "../discord/tools/rememberPerson.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
