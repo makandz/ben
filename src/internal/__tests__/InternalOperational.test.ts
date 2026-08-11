@@ -39,7 +39,7 @@ test("round-trips compatible internal state and reuses a fresh saved status", as
   const directory = await mkdtemp(path.join(os.tmpdir(), "ben-internal-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = path.join(directory, "state.json");
-  await copyFile("src-next/testing/fixtures/internal-state.json", filePath);
+  await copyFile("src/testing/fixtures/internal-state.json", filePath);
   const store = new InternalStateStore(filePath, quietLogger);
   const now = new Date("2026-08-10T12:00:00.000Z");
   assert.deepEqual(await store.readCurrentStatus(), {

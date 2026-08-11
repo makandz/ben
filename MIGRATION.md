@@ -6,10 +6,10 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 9 — completed; Phase 10 requires explicit approval
-- Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–9)
-- Strategy: parallel replacement, then one cutover
+- Current phase: Phase 10 — code cutover complete; user-run runtime verification pending
+- Production implementation: `src` (replacement implementation)
+- Replacement implementation: cut over from `src-next`; temporary tree removed
+- Strategy: cutover complete; retain the recorded rollback revision until runtime acceptance
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
 change the plan.
@@ -600,16 +600,34 @@ Done when the replacement is accepted as the only implementation before any live
 
 ### Phase 10 — Cutover and cleanup
 
-Status: Not started; requires explicit approval
+Status: Code cutover complete; runtime verification deferred to the user
 
-- [ ] Stop the existing bot before starting the replacement.
-- [ ] Preserve state files and a known-good pre-cutover Git revision.
-- [ ] Replace `src` with the reviewed replacement and normalize scripts/configuration.
-- [ ] Build, lint, and test the final tree.
+- [x] Stop the existing bot before starting the replacement.
+- [x] Preserve state files and a known-good pre-cutover Git revision.
+- [x] Replace `src` with the reviewed replacement and normalize scripts/configuration.
+- [x] Build, lint, and test the final tree.
 - [ ] Start the replacement once through the normal user-controlled workflow.
 - [ ] Verify readiness, one conversation, `/usage`, status output, and scheduler startup.
-- [ ] Remove temporary old source/configuration only after verification.
-- [ ] Update the README and condense or remove this plan.
+- [x] Remove temporary old source/configuration.
+- [x] Update the README and condense the active status in this plan.
+
+Code cutover completed on 2026-08-10:
+
+- The user confirmed the bot was stopped and explicitly approved the final implementation phase.
+- `f32f71fb44d4a5195e16c3e74b3692b26b759296` is the known-good pre-cutover revision. Deployment
+  state under `logs` and the local `.env` were not modified.
+- The reviewed replacement is now the sole `src` tree. The legacy implementation, `src-next`, and
+  `tsconfig.next.json` were removed; normal development, build, test, lint, and start scripts target
+  the final paths.
+- `pnpm typecheck`, `pnpm test` (89 passing tests), `pnpm lint`, and a clean `pnpm build` pass without
+  starting the bot or making Discord/OpenAI calls. The final build copies both text prompt assets
+  into `dist` so compiled startup resolves the full conversation and internal-action prompts.
+- The README documents the six-variable environment contract and the final scripts. A static search
+  outside this historical plan finds no remaining `src-next`, `dist-next`, or temporary-config
+  references.
+- At the user's request, Codex did not start the bot or perform readiness and live feature checks.
+  Temporary migration source/configuration was removed after static validation rather than after
+  live verification; Git retains the rollback implementation at the revision above.
 
 Rollback by stopping the replacement, restoring the pre-cutover revision without deleting persisted
 data, and starting only the restored implementation.

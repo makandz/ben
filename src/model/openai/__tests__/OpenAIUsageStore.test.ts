@@ -7,7 +7,7 @@ import test from "node:test";
 import { OpenAIUsageStore } from "../OpenAIUsageStore.js";
 
 const fixturePath = path.resolve(
-  "src-next/testing/fixtures/openai-usage-month.json",
+  "src/testing/fixtures/openai-usage-month.json",
 );
 const fixtureDate = new Date(2026, 0, 2, 12);
 

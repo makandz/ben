@@ -14,7 +14,7 @@ const logger = { warn(event: string) { warnings.push(event); } };
 test("summary store reads the current shape, bounds entries, and writes atomically", async (t) => {
   const directory = await tempDirectory(t);
   const filePath = path.join(directory, "conversation-summaries.json");
-  await copyFile("src-next/testing/fixtures/conversation-summaries.json", filePath);
+  await copyFile("src/testing/fixtures/conversation-summaries.json", filePath);
   const store = new ConversationSummaryStore(filePath, logger);
 
   assert.deepEqual(await store.list(), [{
@@ -53,7 +53,7 @@ test("summary store ignores malformed entries and contains malformed files", asy
 test("known-people store reads the current shape and rejects ID and username duplicates", async (t) => {
   const directory = await tempDirectory(t);
   const filePath = path.join(directory, "known-people.json");
-  await copyFile("src-next/testing/fixtures/known-people.json", filePath);
+  await copyFile("src/testing/fixtures/known-people.json", filePath);
   const store = new KnownPeopleStore(filePath, logger);
 
   assert.deepEqual(await store.listForPrompt(), { sample_user: { name: "Sample" } });
@@ -92,7 +92,7 @@ test("known-people store ignores malformed entries and rejects malformed contain
 test("scheduled-message store reads the current shape and preserves lifecycle fields", async (t) => {
   const directory = await tempDirectory(t);
   const filePath = path.join(directory, "scheduled-messages.json");
-  await copyFile("src-next/testing/fixtures/scheduled-messages.json", filePath);
+  await copyFile("src/testing/fixtures/scheduled-messages.json", filePath);
   const store = new ScheduledMessageStore(filePath, logger);
 
   const [fixture] = await store.listDue(new Date("2026-02-04T00:30:00.000Z"));

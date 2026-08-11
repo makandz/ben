@@ -47,7 +47,7 @@ ben every day at 6pm ask alex and priya if they're joining the call tonight
 
 Scheduled messages require real target users. Ben validates usernames and channels before saving, stores resolved Discord user IDs and channel IDs, and persists schedules to JSON so they survive restarts. At send time, Ben posts the target user pings followed by the scheduled text.
 
-Supported repeats are one-time, daily, and weekly. Monthly schedules are intentionally not supported yet. Dates and times are interpreted in the configured bot timezone.
+Supported repeats are one-time, daily, and weekly. Monthly schedules are intentionally not supported yet. Dates and times are interpreted in Ben's `America/Toronto` timezone.
 
 ## Internal Actions
 
@@ -69,28 +69,22 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 
 ## Configuration
 
-- `OPENAI_MODEL` defaults to `gpt-5.6-luna`.
-- `OPENAI_INTERNAL_MODEL` defaults to `gpt-5.6-luna`.
-- `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
-- `OPENAI_USAGE_LOG_DIR` defaults to `logs/openai-usage`. Usage is stored in monthly `YYMM.json` files with daily buckets.
-- `BOT_INTERNAL_STATE_PATH` defaults to `logs/internal-state.json`. Internal action state is stored separately from usage.
-- `BOT_KNOWN_PEOPLE_PATH` defaults to `logs/known-people.json`. The bot stores remembered Discord users and names there after validating them against the server.
-- `BOT_SCHEDULED_MESSAGES_PATH` defaults to `logs/scheduled-messages.json`. Scheduled messages are stored there.
-- `BOT_SCHEDULE_TIMEZONE` defaults to `America/Toronto`. Scheduled message dates and times are interpreted in this timezone.
-- `BOT_SCHEDULE_CHECK_INTERVAL_MS` defaults to `30000`. The scheduler checks for due messages on this interval.
+- `DISCORD_TOKEN` is required.
+- `OPENAI_API_KEY` is required.
 - `DISCORD_LOG_CHANNEL_ID` optionally enables internal action log lines, wake/wait/sleep status messages, and reasoning summaries in a dedicated Discord channel.
+- `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
 - `LOG_PROMPTS=true` logs full prompts at debug level.
-- `BOT_MESSAGE_DEBOUNCE_MS` defaults to `5000`. After the latest human message, the bot waits this long before calling OpenAI.
-- `BOT_TYPING_DEBOUNCE_MS` defaults to `10000`. Each Discord typing indicator keeps that user active for this long unless they send a message first.
-- `BOT_IDLE_SLEEP_MS` defaults to `300000`.
-- `BOT_INTERNAL_ACTION_INTERVAL_MS` defaults to `86400000`.
 
-The system prompt is loaded from `src/prompts/system.txt` on each OpenAI request, so edits are picked up without restarting the bot.
+Model names, storage paths, session timings, scheduler intervals, and the scheduling timezone are local constants beside the code that owns them.
+
+The system prompt is loaded from the local `prompts/system.txt` asset on each OpenAI request. In development, edits are picked up without restarting the bot; `pnpm build` copies both prompt assets into `dist` for production.
 
 ## Scripts
 
 - `pnpm dev` starts the bot with `tsx` in watch mode.
 - `pnpm build` compiles TypeScript into `dist/`.
 - `pnpm start` runs the compiled bot.
+- `pnpm typecheck` checks TypeScript without emitting files.
+- `pnpm test` runs the test suite without connecting to Discord or OpenAI.
 - `pnpm lint` runs ESLint.
