@@ -1,4 +1,4 @@
-import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
+import { Client, Events, GatewayIntentBits } from "discord.js";
 
 import type {
   DiscordChannel,
@@ -194,18 +194,12 @@ export class DiscordJsGateway implements DiscordGateway {
   }
 
   /**
-   * Applies online/idle state and an optional custom activity.
+   * Applies Ben's online/idle state.
    *
    * @param status - Discord availability state.
-   * @param activity - Optional custom activity text.
    */
-  setPresence(status: "idle" | "online", activity?: string): void {
-    this.client.user?.setPresence({
-      status,
-      ...(activity === undefined
-        ? {}
-        : { activities: [{ name: "custom", state: activity, type: ActivityType.Custom }] }),
-    });
+  setPresence(status: "idle" | "online"): void {
+    this.client.user?.setPresence({ status });
   }
 
   /**

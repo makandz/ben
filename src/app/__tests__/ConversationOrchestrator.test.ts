@@ -44,7 +44,6 @@ test("loops through a capability tool and finishes with portable history", async
         { type: "message", role: "assistant", text: "I'll greet them." },
         createToolCall("2", "send_message", { text: "hey", reaction: "👍" }),
       ],
-      reasoningSummary: "A greeting is useful.",
     },
   ]);
   const registry = new ToolRegistry([capability, sendMessage, waitTool, sleepTool]);
@@ -60,7 +59,6 @@ test("loops through a capability tool and finishes with portable history", async
 
   assert.equal(result.text, "hey");
   assert.equal(result.reaction, "👍");
-  assert.equal(result.reasoningSummary, "A greeting is useful.");
   assert.deepEqual(model.requests[1]?.history.at(-1), {
     type: "tool_result",
     callId: "1",

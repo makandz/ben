@@ -6,7 +6,6 @@ export type AppEnv = {
   discordLogChannelId: string | undefined;
   openaiDailyBudgetUsd: number;
   logLevel: LogLevel;
-  logPrompts: boolean;
 };
 
 const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
@@ -25,7 +24,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     discordLogChannelId: readOptionalValue(source, "DISCORD_LOG_CHANNEL_ID"),
     openaiDailyBudgetUsd: readNonNegativeNumber(source, "OPENAI_DAILY_BUDGET_USD", 0),
     logLevel: readLogLevel(source),
-    logPrompts: readBoolean(source, "LOG_PROMPTS", false),
   };
 }
 
@@ -72,19 +70,4 @@ function readLogLevel(source: NodeJS.ProcessEnv): LogLevel {
   }
 
   return value as LogLevel;
-}
-
-/** Reads a strict true/false environment flag. */
-function readBoolean(source: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
-  const value = readOptionalValue(source, name);
-
-  if (value === undefined) {
-    return fallback;
-  }
-
-  if (value !== "true" && value !== "false") {
-    throw new Error(`${name} must be either true or false.`);
-  }
-
-  return value === "true";
 }

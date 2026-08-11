@@ -12,9 +12,6 @@ import { handleUsageCommand, registerUsageCommand } from "../discord/usageComman
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
 import { createRememberPersonTool } from "../discord/tools/rememberPerson.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
-import { InternalActionRunner } from "../internal/InternalActionRunner.js";
-import { InternalActionScheduler } from "../internal/InternalActionScheduler.js";
-import { InternalStateStore } from "../internal/InternalStateStore.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
 import { formatBotTime } from "../scheduling/scheduleTime.js";
@@ -29,7 +26,6 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
 
 const paths = {
-  internal: "logs/internal-state.json",
   summaries: "logs/conversation-summaries.json",
   people: "logs/known-people.json",
   schedules: "logs/scheduled-messages.json",
@@ -45,7 +41,6 @@ export type ApplicationDependencies = {
   logger: Logger;
   gateway: DiscordGateway;
   conversationModel: Model;
-  internalModel: Model;
   instructions: string;
   usageStore: OpenAIUsageStore;
 };
@@ -65,13 +60,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const summaries = new ConversationSummaryStore(paths.summaries, logger);
   const people = new KnownPeopleStore(paths.people, logger);
   const schedules = new ScheduledMessageStore(paths.schedules, logger);
-  const internalScheduler = new InternalActionScheduler(
-    new InternalActionRunner(dependencies.internalModel, logger, env.logPrompts),
-    new InternalStateStore(paths.internal, logger),
-    presence,
-    transport,
-    logger,
-  );
   const scheduledScheduler = new ScheduledMessageScheduler(
     schedules,
     createScheduledMessageDelivery(gateway),
@@ -116,12 +104,11 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     dependencies.instructions,
     new ConversationOrchestrator(dependencies.conversationModel, tools),
     transport,
-    internalScheduler,
+    presence,
     logger,
     {},
     { summaries, knownPeople: people },
     {
-      getCurrentActivityStatus: () => internalScheduler.getCurrentActivityStatus(),
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
   );
@@ -136,8 +123,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       handleReady: () => {
         if (ready) return;
         ready = true;
-        internalScheduler.setAwakePresence(false);
-        void internalScheduler.start();
+        presence.setPresence({ status: "idle" });
         void scheduledScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
@@ -156,7 +142,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     start: () => adapter.start(env.discordToken),
     async stop() {
       session.stop();
-      internalScheduler.stop();
       scheduledScheduler.stop();
       await adapter.stop();
     },

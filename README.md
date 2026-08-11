@@ -49,20 +49,6 @@ Scheduled messages require real target users. Ben validates usernames and channe
 
 Supported repeats are one-time, daily, and weekly. Monthly schedules are intentionally not supported yet. Dates and times are interpreted in Ben's `America/Toronto` timezone.
 
-## Internal Actions
-
-The bot can run separate scheduled internal actions using their own prompt files under `src/prompts/internal/`.
-
-The first internal action runs once on startup and then every 24 hours by default. It asks `gpt-5.6-luna` to choose Ben's Discord activity status, then applies that status and optionally writes a log line like:
-
-```text
-> 🧠 thinking quietly
-```
-
-This is not shared reasoning or hidden chain-of-thought. The internal action prompt requires the model to return only the public status payload needed by the bot.
-
-The last status is stored in a separate JSON file at `logs/internal-state.json` by default. If the bot restarts before 24 hours have passed, it reuses the saved status and waits until the original 24-hour window expires before asking the model again.
-
 ## Discord Commands
 
 - `/usage` shows today's persisted OpenAI request count, input tokens, cached input tokens, output tokens, total tokens, estimated cost, and configured model.
@@ -71,14 +57,13 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 
 - `DISCORD_TOKEN` is required.
 - `OPENAI_API_KEY` is required.
-- `DISCORD_LOG_CHANNEL_ID` optionally enables internal action log lines, wake/wait/sleep status messages, and reasoning summaries in a dedicated Discord channel.
+- `DISCORD_LOG_CHANNEL_ID` optionally enables wake/wait/sleep status messages in a dedicated Discord channel.
 - `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
 - `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
-- `LOG_PROMPTS=true` logs full prompts at debug level.
 
 Model names, storage paths, session timings, scheduler intervals, and the scheduling timezone are local constants beside the code that owns them.
 
-The system prompt is loaded from the local `prompts/system.txt` asset on each OpenAI request. In development, edits are picked up without restarting the bot; `pnpm build` copies both prompt assets into `dist` for production.
+The system prompt is loaded from the local `prompts/system.txt` asset on each OpenAI request. In development, edits are picked up without restarting the bot; `pnpm build` copies it into `dist` for production.
 
 ## Scripts
 

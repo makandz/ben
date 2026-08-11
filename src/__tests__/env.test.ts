@@ -8,14 +8,13 @@ const requiredEnv = {
   OPENAI_API_KEY: "openai-key",
 };
 
-test("loadEnv loads the six-variable contract with defaults", () => {
+test("loadEnv loads the five-variable contract with defaults", () => {
   assert.deepEqual(loadEnv(requiredEnv), {
     discordToken: "discord-token",
     openaiApiKey: "openai-key",
     discordLogChannelId: undefined,
     openaiDailyBudgetUsd: 0,
     logLevel: "info",
-    logPrompts: false,
   });
 });
 
@@ -26,7 +25,6 @@ test("loadEnv validates and loads optional values", () => {
       DISCORD_LOG_CHANNEL_ID: " log-channel ",
       OPENAI_DAILY_BUDGET_USD: "12.5",
       LOG_LEVEL: "debug",
-      LOG_PROMPTS: "true",
     }),
     {
       discordToken: "discord-token",
@@ -34,7 +32,6 @@ test("loadEnv validates and loads optional values", () => {
       discordLogChannelId: "log-channel",
       openaiDailyBudgetUsd: 12.5,
       logLevel: "debug",
-      logPrompts: true,
     },
   );
 });
@@ -52,9 +49,5 @@ test("loadEnv rejects invalid optional values", () => {
   assert.throws(
     () => loadEnv({ ...requiredEnv, LOG_LEVEL: "verbose" }),
     /LOG_LEVEL must be one of/,
-  );
-  assert.throws(
-    () => loadEnv({ ...requiredEnv, LOG_PROMPTS: "yes" }),
-    /LOG_PROMPTS must be either true or false/,
   );
 });

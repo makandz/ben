@@ -47,7 +47,6 @@ export type BotSessionPersistence = {
 };
 
 export type BotSessionPromptContext = {
-  getCurrentActivityStatus?(): string | undefined;
   getCurrentBotTime?(): string | undefined;
 };
 
@@ -95,7 +94,7 @@ export class BotSession {
    * @param logger - Structured application logger.
    * @param timingOverrides - Narrow timer overrides intended for behavior tests.
    * @param persistence - Optional summary and known-people persistence capabilities.
-   * @param promptContext - Optional dynamic activity and local-time prompt values.
+   * @param promptContext - Optional dynamic local-time prompt values.
    * @throws When a timing override is negative or not finite.
    */
   constructor(
@@ -326,7 +325,6 @@ export class BotSession {
           return [];
         })) ?? [])
       : [];
-    const currentActivityStatus = this.promptContext.getCurrentActivityStatus?.();
     const currentBotTime = this.promptContext.getCurrentBotTime?.();
     const prompt = buildUserPrompt({
       recentContext,
@@ -334,7 +332,6 @@ export class BotSession {
       knownPeople,
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
-      ...(currentActivityStatus === undefined ? {} : { currentActivityStatus }),
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
       ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
@@ -386,16 +383,10 @@ export class BotSession {
 
     if (outcome.type === "reply") {
       await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
-      if (outcome.reasoningSummary !== undefined) {
-        await this.logStatus("Model reasoning", { summary: outcome.reasoningSummary });
-      }
       await this.deliverOptionalMessage(channelId, outcome.text);
       this.history = [...outcome.history];
     } else if (outcome.type === "react") {
       await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
-      if (outcome.reasoningSummary !== undefined) {
-        await this.logStatus("Model reasoning", { summary: outcome.reasoningSummary });
-      }
       this.history = [...outcome.history];
     } else if (outcome.type === "wait") {
       await this.logStatus("Waiting for the next message", { channelId });

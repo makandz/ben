@@ -11,7 +11,6 @@ export type UserPromptOptions = {
   messages: readonly HumanMessage[];
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
-  currentActivityStatus?: string;
   currentBotTime?: string;
   pingedByUsername?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
@@ -75,10 +74,6 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     if (knownPeopleText.length > 0) {
       sections.push(`Known people:\n${knownPeopleText}`);
     }
-  }
-
-  if (options.currentActivityStatus !== undefined) {
-    sections.push(`Ben's current activity status is "${options.currentActivityStatus}".`);
   }
 
   if (options.currentBotTime !== undefined) {

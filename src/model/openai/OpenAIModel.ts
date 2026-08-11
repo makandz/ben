@@ -15,7 +15,6 @@ import { OpenAIMapper } from "./OpenAIMapper.js";
 import { OpenAIUsageStore } from "./OpenAIUsageStore.js";
 
 export const OPENAI_CONVERSATION_MODEL = "gpt-5.6-luna";
-export const OPENAI_INTERNAL_MODEL = "gpt-5.6-luna";
 const MAX_OUTPUT_TOKENS = 512;
 
 type ResponsesClient = {
@@ -81,7 +80,7 @@ export class OpenAIModel implements Model {
         ? {}
         : { tools, tool_choice: "required" as const, parallel_tool_calls: false }),
       max_output_tokens: this.maxOutputTokens,
-      reasoning: { effort: "medium", summary: "concise" },
+      reasoning: { effort: "medium" },
       include: ["reasoning.encrypted_content"],
       store: false,
     });

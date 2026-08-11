@@ -179,11 +179,8 @@ test("presence is a separate application capability", () => {
   const gateway = new FakeDiscordGateway();
   const presence = new DiscordPresence(gateway);
   presence.setPresence({ status: "idle" });
-  presence.setPresence({ status: "online", activity: "🍕 eating pizza" });
-  assert.deepEqual(gateway.presences, [
-    { status: "idle", activity: undefined },
-    { status: "online", activity: "🍕 eating pizza" },
-  ]);
+  presence.setPresence({ status: "online" });
+  assert.deepEqual(gateway.presences, ["idle", "online"]);
 });
 
 class FakeDiscordGateway implements DiscordGateway {
@@ -196,7 +193,7 @@ class FakeDiscordGateway implements DiscordGateway {
   sent: Array<{ channelId: string; content: string; options: DiscordSendOptions }> = [];
   typing: string[] = [];
   reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
-  presences: Array<{ status: "idle" | "online"; activity: string | undefined }> = [];
+  presences: Array<"idle" | "online"> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
 
   setHandlers(handlers: DiscordGatewayHandlers): void {
@@ -234,8 +231,8 @@ class FakeDiscordGateway implements DiscordGateway {
   async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
     this.reactions.push({ channelId, messageId, emoji });
   }
-  setPresence(status: "idle" | "online", activity?: string): void {
-    this.presences.push({ status, activity });
+  setPresence(status: "idle" | "online"): void {
+    this.presences.push(status);
   }
   async registerCommand(): Promise<"registered"> {
     return "registered";

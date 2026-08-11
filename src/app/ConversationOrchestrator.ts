@@ -90,9 +90,6 @@ export class ConversationOrchestrator {
           if (execution.outcome.type === "reply" || execution.outcome.type === "react") {
             return {
               ...execution.outcome,
-              ...(turn.reasoningSummary === undefined
-                ? {}
-                : { reasoningSummary: turn.reasoningSummary }),
               history: memory,
             };
           }

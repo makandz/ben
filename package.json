@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc --project tsconfig.json && cp src/prompts/system.txt dist/prompts/system.txt && mkdir -p dist/prompts/internal && cp src/prompts/internal/status.txt dist/prompts/internal/status.txt",
+    "build": "tsc --project tsconfig.json && cp src/prompts/system.txt dist/prompts/system.txt",
     "start": "node dist/index.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

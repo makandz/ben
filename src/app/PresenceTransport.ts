@@ -1,8 +1,7 @@
-export type ActivityPresence = {
+export type PresenceState = {
   status: "idle" | "online";
-  activity?: string;
 };
 
 export type PresenceTransport = {
-  setPresence(presence: ActivityPresence): void;
+  setPresence(presence: PresenceState): void;
 };
