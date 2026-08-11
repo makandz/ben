@@ -49,6 +49,13 @@ export class DiscordJsGateway implements DiscordGateway {
       if (typing.user.username === null) return;
       this.handlers?.typing({ channel: toChannel(typing.channel), user: toUser(typing.user) });
     });
+    client.on(Events.InteractionCreate, (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+      this.handlers?.command({
+        name: interaction.commandName,
+        reply: async (content) => { await interaction.reply(content); },
+      });
+    });
     client.on(Events.Error, (error) => {
       this.handlers?.error(error);
     });
@@ -197,6 +204,25 @@ export class DiscordJsGateway implements DiscordGateway {
         ? {}
         : { activities: [{ name: "custom", state: activity, type: ActivityType.Custom }] }),
     });
+  }
+
+  /**
+   * Creates or refreshes one global application command.
+   *
+   * @param command - Global command name and description.
+   * @returns Whether the command was newly registered or updated.
+   */
+  async registerCommand(
+    command: { name: string; description: string },
+  ): Promise<"registered" | "updated"> {
+    const commands = await this.client.application?.commands.fetch();
+    const existing = commands?.find((candidate) => candidate.name === command.name);
+    if (existing === undefined) {
+      await this.client.application?.commands.create(command);
+      return "registered";
+    }
+    await existing.edit(command);
+    return "updated";
   }
 }
 

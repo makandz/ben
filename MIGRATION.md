@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 7 — completed; Phase 8 not started
+- Current phase: Phase 8 — completed; Phase 9 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–7 only)
+- Replacement implementation: `src-next` (Phases 1–8 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -251,9 +251,9 @@ check.
 
 ### Discord and lifecycle
 
-- [ ] Required intents, message/typing/interaction/error handlers, and shutdown handling.
+- [x] Required intents, message/typing/interaction/error handlers, and shutdown handling.
 - [x] Ignore bot messages and normalize human messages without leaking SDK types.
-- [ ] Detect direct pings and register/handle `/usage`.
+- [x] Detect direct pings and register/handle `/usage`.
 - [x] Send messages, reactions, typing, status logs, and presence safely.
 - [x] Resolve user/channel mentions and escape `@everyone`/`@here`.
 - [ ] Restrict allowed mentions and reject missing or ambiguous lookups.
@@ -298,12 +298,12 @@ check.
 
 ### Persistence, usage, and internal status
 
-- [ ] Read current summaries, known people, schedules, usage, and internal-state files.
-- [ ] Preserve atomic writes and intentional malformed-entry handling.
-- [ ] Record input/cached/output/total tokens and compatible daily/monthly usage.
-- [ ] Calculate model cost, treat zero budget as unlimited, and format `/usage`.
-- [ ] Reuse fresh saved activity status and refresh stale status on its interval.
-- [ ] Validate, persist, apply, and log activity status without overlapping runs.
+- [x] Read current summaries, known people, schedules, usage, and internal-state files.
+- [x] Preserve atomic writes and intentional malformed-entry handling.
+- [x] Record input/cached/output/total tokens and compatible daily/monthly usage.
+- [x] Calculate model cost, treat zero budget as unlimited, and format `/usage`.
+- [x] Reuse fresh saved activity status and refresh stale status on its interval.
+- [x] Validate, persist, apply, and log activity status without overlapping runs.
 
 ## Phases
 
@@ -527,14 +527,38 @@ Done when existing schedules retain their intended next run and tests use no liv
 
 ### Phase 8 — Operational features and composition
 
-Status: Not started
+Status: Complete
 
-- [ ] Port `/usage` registration/formatting and full budget behavior.
-- [ ] Port internal status generation, persistence, scheduling, logging, and presence.
-- [ ] Decide how internal actions reuse the model boundary.
-- [ ] Compose the replacement in a small `src-next/index.ts`.
-- [ ] Test fresh/stale status, action failures/budget/overlap, and composition without login.
-- [ ] Review all files against responsibility and size guardrails.
+- [x] Port `/usage` registration/formatting and full budget behavior.
+- [x] Port internal status generation, persistence, scheduling, logging, and presence.
+- [x] Decide how internal actions reuse the model boundary.
+- [x] Compose the replacement in a small `src-next/index.ts`.
+- [x] Test fresh/stale status, action failures/budget/overlap, and composition without login.
+- [x] Review all files against responsibility and size guardrails.
+
+Completed on 2026-08-10:
+
+- `/usage` is registered and handled through normalized Discord command contracts, retains the
+  compact production format, reports unlimited budgets as `n/a`, and contains read failures with
+  an ephemeral reply. Conversation budget exhaustion now produces the existing user-facing daily
+  reset message, while internal actions return a controlled budget result.
+- Internal status generation reuses the provider-neutral `Model` boundary with an empty tool list.
+  `OpenAIModel` conditionally omits tool selection for these requests, so conversation and internal
+  calls share usage persistence and budget enforcement without forcing internal actions through the
+  conversation orchestrator.
+- The production-compatible internal-state store validates status JSON and writes atomically. The
+  scheduler reuses fresh state, refreshes stale state on the local 24-hour interval, preserves
+  awake/idle presence, logs changed statuses and reasoning safely, and prevents overlapping starts.
+- `createApplication` composes Discord, models, stores, tools, session, scheduled delivery, internal
+  actions, and lifecycle handling without login or timer side effects. The 61-line `src-next/index.ts`
+  contains default wiring and only logs in when executed directly.
+- Phase 8 adds 11 focused tests, bringing the replacement suite to 89 passing tests. Replacement
+  type-check and the production build pass. `pnpm lint` remains unavailable because the local
+  `eslint` executable is missing; no dependency was installed or changed.
+- The size/responsibility review found no new mixed-responsibility module. `BotSession` remains over
+  its 400-line review signal as one cohesive state machine, and the scheduled-message tool remains
+  over its 200-line signal as cohesive validation/resolution behavior. Both predate Phase 8;
+  splitting either now would introduce coupled fragments without removing a reason to change.
 
 Done when every current feature is composed and `index.ts` contains wiring rather than business
 logic.
@@ -591,10 +615,11 @@ Done when one verified `src` remains and all normal scripts target it.
   `OpenAIMapper`; omit continuation data when history did not originate from that adapter instance.
 - Keep presence separate from `ChatTransport` through a small `PresenceTransport` capability;
   conversation output does not own custom activity state.
+- Reuse the provider-neutral `Model` interface for internal actions with no tools. Provider adapters
+  may omit tool-selection fields for an empty tool list; internal actions parse their own result.
 
 ## Open questions
 
-- Same `Model` interface for internal actions, or a narrower operation?
 - Copied prompts in `src-next`, or neutral root-level prompt assets?
 - Which existing-toolchain command provides the cleanest TypeScript tests and timer control?
 

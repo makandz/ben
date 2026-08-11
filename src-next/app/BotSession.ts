@@ -1,4 +1,5 @@
 import type { Logger } from "../logger.js";
+import { ModelBudgetExceededError } from "../model/Model.js";
 import { buildUserPrompt, type KnownPeople } from "../prompts/formatMessages.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";
@@ -67,6 +68,13 @@ export type BotSessionPersistence = {
   };
 };
 
+export type BotSessionPromptContext = {
+  /** @returns The current custom activity shown on Discord, when available. */
+  getCurrentActivityStatus?(): string | undefined;
+  /** @returns A formatted current bot-local time for scheduling context. */
+  getCurrentBotTime?(): string | undefined;
+};
+
 type TypingActivity = { expiresAt: number };
 
 type QueuedWake = {
@@ -121,6 +129,7 @@ export class BotSession {
     private readonly logger: Pick<Logger, "debug" | "info" | "warn">,
     timingOverrides: BotSessionTimingOverrides = {},
     private readonly persistence: BotSessionPersistence = {},
+    private readonly promptContext: BotSessionPromptContext = {},
   ) {
     this.timings = { ...productionTimings, ...timingOverrides };
 
@@ -329,12 +338,16 @@ export class BotSession {
           return [];
         }) ?? []
       : [];
+    const currentActivityStatus = this.promptContext.getCurrentActivityStatus?.();
+    const currentBotTime = this.promptContext.getCurrentBotTime?.();
     const prompt = buildUserPrompt({
       recentContext,
       messages,
       knownPeople,
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
+      ...(currentActivityStatus === undefined ? {} : { currentActivityStatus }),
+      ...(currentBotTime === undefined ? {} : { currentBotTime }),
       ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
         : {}),
@@ -400,7 +413,19 @@ export class BotSession {
       await this.logStatus("Waiting for the next message", { channelId });
       this.history = [...outcome.history];
     } else {
-      this.logger.warn("conversation.failed", { error: String(outcome.error) });
+      if (outcome.error instanceof ModelBudgetExceededError) {
+        this.logger.info("model.budget_exceeded_ignored", {
+          day: outcome.error.day,
+          costUsd: outcome.error.costUsd,
+          budgetUsd: outcome.error.budgetUsd,
+        });
+        await this.deliverOptionalMessage(
+          channelId,
+          `Daily OpenAI budget reached (${formatUsd(outcome.error.costUsd)} / ${formatUsd(outcome.error.budgetUsd)}). I will respond again after the next daily reset.`,
+        );
+      } else {
+        this.logger.warn("conversation.failed", { error: String(outcome.error) });
+      }
     }
 
     this.mode = "awake";
@@ -510,4 +535,8 @@ export class BotSession {
     this.idleTimer = undefined;
     this.typingTimer = undefined;
   }
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(4)}`;
 }

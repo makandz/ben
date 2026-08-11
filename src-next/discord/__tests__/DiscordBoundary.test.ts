@@ -214,6 +214,7 @@ class FakeDiscordGateway implements DiscordGateway {
   setPresence(status: "idle" | "online", activity?: string): void {
     this.presences.push({ status, activity });
   }
+  async registerCommand(): Promise<"registered"> { return "registered"; }
   emitReady(user: DiscordUser): void { this.botUser = user; this.handlers?.ready(user); }
   emitMessage(message: Parameters<DiscordGatewayHandlers["message"]>[0]): void { this.handlers?.message(message); }
   emitTyping(event: Parameters<DiscordGatewayHandlers["typing"]>[0]): void { this.handlers?.typing(event); }

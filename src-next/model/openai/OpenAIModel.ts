@@ -67,13 +67,14 @@ export class OpenAIModel implements Model {
       throw new ModelBudgetExceededError(budget.day, budget.costUsd, budget.budgetUsd);
     }
 
+    const tools = this.mapper.toTools(request);
     const response = await this.responses.create({
       model: this.model,
       instructions: request.instructions,
       input: this.mapper.toInput(request),
-      tools: this.mapper.toTools(request),
-      tool_choice: "required",
-      parallel_tool_calls: false,
+      ...(tools.length === 0
+        ? {}
+        : { tools, tool_choice: "required" as const, parallel_tool_calls: false }),
       max_output_tokens: this.maxOutputTokens,
       reasoning: { effort: "low", summary: "concise" },
       include: ["reasoning.encrypted_content"],

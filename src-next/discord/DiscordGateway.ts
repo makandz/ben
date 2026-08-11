@@ -35,6 +35,18 @@ export type DiscordTypingEvent = {
   user: DiscordUser;
 };
 
+/** Normalized application-command interaction delivered by Discord. */
+export type DiscordCommandEvent = {
+  name: string;
+  reply(content: string | { content: string; ephemeral: boolean }): Promise<void>;
+};
+
+/** Global application-command definition owned by the application. */
+export type DiscordCommandDefinition = {
+  name: string;
+  description: string;
+};
+
 /** Allowed-mention policy for one Discord message. */
 export type DiscordSendOptions = {
   allowUserMentions: boolean;
@@ -45,6 +57,7 @@ export type DiscordGatewayHandlers = {
   ready(user: DiscordUser): void;
   message(message: DiscordMessageEvent): void;
   typing(event: DiscordTypingEvent): void;
+  command(event: DiscordCommandEvent): void;
   error(error: unknown): void;
 };
 
@@ -72,4 +85,5 @@ export type DiscordGateway = {
     emoji: string,
   ): Promise<void>;
   setPresence(status: "idle" | "online", activity?: string): void;
+  registerCommand(command: DiscordCommandDefinition): Promise<"registered" | "updated">;
 };

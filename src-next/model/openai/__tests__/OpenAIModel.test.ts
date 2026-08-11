@@ -80,6 +80,36 @@ test("blocks the provider request after the daily budget is reached", async (con
   assert.equal(calls, 0);
 });
 
+test("supports internal model requests without forcing a tool call", async (context) => {
+  const directory = await createTempDirectory(context);
+  const usageStore = new OpenAIUsageStore(directory, "gpt-5.4-mini", 0);
+  let request: ResponseCreateParamsNonStreaming | undefined;
+  const model = new OpenAIModel({ apiKey: "test", maxOutputTokens: 96 }, usageStore, {
+    async create(params): Promise<Response> {
+      request = params;
+      return {
+        output: [{
+          id: "message-1",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "status", annotations: [] }],
+        }],
+      } as unknown as Response;
+    },
+  });
+
+  const turn = await model.invoke({
+    instructions: "Pick a status.",
+    history: [{ type: "message", role: "user", text: "Run now." }],
+    tools: [],
+  });
+
+  assert.equal("tools" in (request ?? {}), false);
+  assert.equal("tool_choice" in (request ?? {}), false);
+  assert.deepEqual(turn.items, [{ type: "message", role: "assistant", text: "status" }]);
+});
+
 function createResponse(): Response {
   return {
     output: [{

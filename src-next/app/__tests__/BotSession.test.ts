@@ -5,6 +5,7 @@ import { BotSession, type BotSessionPersistence } from "../BotSession.js";
 import type { ActivityPresence } from "../PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
 import { RecordingTransport } from "../../testing/RecordingTransport.js";
+import { ModelBudgetExceededError } from "../../model/Model.js";
 
 const quietLogger = {
   debug() {},
@@ -243,6 +244,24 @@ test("idle sleep clears history before a later wake", async (t) => {
 
   assert.deepEqual(orchestrator.calls[1]?.history, []);
   assert.deepEqual(presence.values.map(({ status }) => status), ["online", "idle", "online"]);
+});
+
+test("reports a reached daily budget and remains awake", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([{
+    type: "failed",
+    error: new ModelBudgetExceededError("260810", 1.25, 1),
+  }]);
+  const { session, transport } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("ping"), true);
+  await until(() => transport.messages.length === 1);
+
+  assert.equal(
+    transport.messages[0]?.text,
+    "Daily OpenAI budget reached ($1.2500 / $1.0000). I will respond again after the next daily reset.",
+  );
+  assert.equal(session.getActiveChannelId(), "channel-a");
 });
 
 test("loads persisted wake context, names speakers each turn, and saves the sleep summary", async (t) => {
