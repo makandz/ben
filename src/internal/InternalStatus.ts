@@ -3,15 +3,30 @@ import { z } from "zod";
 import { isSingleUnicodeEmoji } from "../util/emoji.js";
 
 const blockedTerms = [
-  "assistant", "available", "coding", "debugging", "grinding", "headphones", "helping",
-  "listening", "online", "programming", "productivity", "shipping", "working",
+  "assistant",
+  "available",
+  "coding",
+  "debugging",
+  "grinding",
+  "headphones",
+  "helping",
+  "listening",
+  "online",
+  "programming",
+  "productivity",
+  "shipping",
+  "working",
 ];
 
 export const internalStatusSchema = z.object({
   emoji: z.string().trim().refine(isSingleUnicodeEmoji, {
     message: "emoji must be exactly one unicode emoji",
   }),
-  text: z.string().trim().min(2).max(48)
+  text: z
+    .string()
+    .trim()
+    .min(2)
+    .max(48)
     .transform((value) => value.replace(/\s+/g, " "))
     .refine((value) => value === value.toLowerCase(), { message: "text must be lowercase" })
     .refine((value) => !blockedTerms.some((term) => value.includes(term)), {
@@ -36,7 +51,9 @@ export function parseInternalStatusPayload(text: string): InternalStatus {
   }
   const result = internalStatusSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(`Internal status action returned invalid status: ${z.prettifyError(result.error)}`);
+    throw new Error(
+      `Internal status action returned invalid status: ${z.prettifyError(result.error)}`,
+    );
   }
   return result.data;
 }

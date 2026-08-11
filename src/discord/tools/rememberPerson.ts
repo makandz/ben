@@ -57,8 +57,9 @@ export function createRememberPersonTool(dependencies: RememberPersonToolDepende
       try {
         const channel = await dependencies.gateway.fetchChannel(channelId);
         if (channel?.guildId === undefined) return await fail("active channel is not in a server");
-        const candidates = (await dependencies.gateway.searchGuildMembers(channel.guildId, username))
-          .filter((member) => !member.bot);
+        const candidates = (
+          await dependencies.gateway.searchGuildMembers(channel.guildId, username)
+        ).filter((member) => !member.bot);
         const member = findMatchingMember(username, candidates);
         if (member === undefined) return await fail("no matching server member found");
 
@@ -94,17 +95,19 @@ async function sendStatus(
     dependencies.logger.warn("discord.remember_status_failed", { error: "Missing channel ID" });
     return;
   }
-  await dependencies.gateway.sendMessage(channelId, escapeBroadcastMentions(text), {
-    allowUserMentions: false,
-  }).catch((error: unknown) => {
-    dependencies.logger.warn("discord.remember_status_failed", { error: String(error) });
-  });
+  await dependencies.gateway
+    .sendMessage(channelId, escapeBroadcastMentions(text), {
+      allowUserMentions: false,
+    })
+    .catch((error: unknown) => {
+      dependencies.logger.warn("discord.remember_status_failed", { error: String(error) });
+    });
 }
 
 /** Narrows unknown model arguments to a record. */
 function parseArguments(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 

@@ -9,9 +9,7 @@ export function isSingleUnicodeEmoji(value: string): boolean {
     return false;
   }
 
-  const graphemes = [
-    ...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value),
-  ];
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
 
   if (graphemes.length !== 1) {
     return false;

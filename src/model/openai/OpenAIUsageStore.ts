@@ -111,11 +111,7 @@ export class OpenAIUsageStore {
    * @param now - Local date used to select the usage day.
    * @returns The request cost and updated daily total.
    */
-  async record(
-    model: string,
-    usage: TokenUsage,
-    now = new Date(),
-  ): Promise<RecordedUsage> {
+  async record(model: string, usage: TokenUsage, now = new Date()): Promise<RecordedUsage> {
     const day = formatDay(now);
     const monthFile = await this.readMonthFile(formatMonth(now));
     const dayUsage = monthFile.days[day] ?? emptyUsageDay();
@@ -198,13 +194,20 @@ function parseMonthFile(value: unknown, expectedMonth: string): UsageMonthFile {
 
 /** Checks that a persisted daily entry contains valid non-negative totals. */
 function isUsageDay(value: unknown): value is UsageDay {
-  return isRecord(value) &&
-    isNonNegativeFinite(value.requests) && Number.isInteger(value.requests) &&
-    isNonNegativeFinite(value.inputTokens) && Number.isInteger(value.inputTokens) &&
-    isNonNegativeFinite(value.cachedInputTokens) && Number.isInteger(value.cachedInputTokens) &&
-    isNonNegativeFinite(value.outputTokens) && Number.isInteger(value.outputTokens) &&
-    isNonNegativeFinite(value.totalTokens) && Number.isInteger(value.totalTokens) &&
-    isNonNegativeFinite(value.costUsd);
+  return (
+    isRecord(value) &&
+    isNonNegativeFinite(value.requests) &&
+    Number.isInteger(value.requests) &&
+    isNonNegativeFinite(value.inputTokens) &&
+    Number.isInteger(value.inputTokens) &&
+    isNonNegativeFinite(value.cachedInputTokens) &&
+    Number.isInteger(value.cachedInputTokens) &&
+    isNonNegativeFinite(value.outputTokens) &&
+    Number.isInteger(value.outputTokens) &&
+    isNonNegativeFinite(value.totalTokens) &&
+    Number.isInteger(value.totalTokens) &&
+    isNonNegativeFinite(value.costUsd)
+  );
 }
 
 /** Narrows an unknown value to a plain record. */

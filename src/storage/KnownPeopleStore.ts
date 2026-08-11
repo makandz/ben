@@ -9,8 +9,7 @@ type KnownPeopleData = { people: Record<string, StoredKnownPerson> };
 
 export type RememberKnownPersonInput = { userId: string; username: string; name: string };
 export type RememberKnownPersonResult =
-  | { ok: true; username: string; name: string }
-  | { ok: false; error: string };
+  { ok: true; username: string; name: string } | { ok: false; error: string };
 
 /** Persists verified Discord identities used to add real names to prompts. */
 export class KnownPeopleStore {
@@ -51,7 +50,10 @@ export class KnownPeopleStore {
     const data = await this.read();
     const existing = data.people[userId];
     if (existing !== undefined) {
-      return { ok: false, error: `${existing.username} is already remembered as "${existing.name}"` };
+      return {
+        ok: false,
+        error: `${existing.username} is already remembered as "${existing.name}"`,
+      };
     }
     for (const [existingUserId, person] of Object.entries(data.people)) {
       if (existingUserId !== userId && normalizeUsername(person.username) === normalizedUsername) {
@@ -71,7 +73,8 @@ export class KnownPeopleStore {
       parsed = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
     } catch (error) {
       if (isNotFoundError(error)) return { people: {} };
-      if (error instanceof SyntaxError) throw new Error(`${this.filePath} must contain valid JSON.`);
+      if (error instanceof SyntaxError)
+        throw new Error(`${this.filePath} must contain valid JSON.`);
       throw error;
     }
     if (!isRecord(parsed)) throw new Error(`${this.filePath} must contain a JSON object.`);
@@ -80,7 +83,11 @@ export class KnownPeopleStore {
 
     const data: KnownPeopleData = { people: {} };
     for (const [userId, value] of Object.entries(parsed.people)) {
-      if (!isRecord(value) || typeof value.username !== "string" || typeof value.name !== "string") {
+      if (
+        !isRecord(value) ||
+        typeof value.username !== "string" ||
+        typeof value.name !== "string"
+      ) {
         this.logger.warn("known_people.invalid_entry_ignored", { userId });
         continue;
       }

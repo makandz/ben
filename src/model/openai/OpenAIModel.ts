@@ -1,5 +1,8 @@
 import OpenAI from "openai";
-import type { Response, ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
+import type {
+  Response,
+  ResponseCreateParamsNonStreaming,
+} from "openai/resources/responses/responses";
 
 import {
   ModelBudgetExceededError,

@@ -72,7 +72,8 @@ export function isFreshStatusState(
 }
 
 function parseState(value: unknown): InternalStatusState | undefined {
-  if (!isRecord(value) || value.action !== "status" || typeof value.setAt !== "string") return undefined;
+  if (!isRecord(value) || value.action !== "status" || typeof value.setAt !== "string")
+    return undefined;
   const result = internalStatusSchema.safeParse(value.status);
   return result.success ? { action: "status", status: result.data, setAt: value.setAt } : undefined;
 }

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createApplication } from "../createApplication.js";
-import type { DiscordGateway, DiscordGatewayHandlers, DiscordUser } from "../../discord/DiscordGateway.js";
+import type {
+  DiscordGateway,
+  DiscordGatewayHandlers,
+  DiscordUser,
+} from "../../discord/DiscordGateway.js";
 import { Logger } from "../../logger.js";
 import { OpenAIUsageStore } from "../../model/openai/OpenAIUsageStore.js";
 import { ScriptedModel } from "../../testing/ScriptedModel.js";
@@ -36,16 +40,32 @@ class FakeGateway implements DiscordGateway {
   handlers: DiscordGatewayHandlers | undefined;
   loginToken: string | undefined;
   destroyed = false;
-  setHandlers(handlers: DiscordGatewayHandlers): void { this.handlers = handlers; }
-  async login(token: string): Promise<void> { this.loginToken = token; }
-  async destroy(): Promise<void> { this.destroyed = true; }
-  getBotUser(): DiscordUser | undefined { return undefined; }
-  async fetchChannel() { return undefined; }
-  async searchGuildMembers() { return []; }
-  async fetchGuildChannels() { return []; }
+  setHandlers(handlers: DiscordGatewayHandlers): void {
+    this.handlers = handlers;
+  }
+  async login(token: string): Promise<void> {
+    this.loginToken = token;
+  }
+  async destroy(): Promise<void> {
+    this.destroyed = true;
+  }
+  getBotUser(): DiscordUser | undefined {
+    return undefined;
+  }
+  async fetchChannel() {
+    return undefined;
+  }
+  async searchGuildMembers() {
+    return [];
+  }
+  async fetchGuildChannels() {
+    return [];
+  }
   async sendMessage() {}
   async sendTyping() {}
   async addReaction() {}
   setPresence() {}
-  async registerCommand(): Promise<"registered"> { return "registered"; }
+  async registerCommand(): Promise<"registered"> {
+    return "registered";
+  }
 }

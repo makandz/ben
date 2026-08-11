@@ -40,10 +40,10 @@ export const replyTool: Tool = {
   definition: {
     name: "send_message",
     description: "Send a message and/or react, then wait for more messages.",
-    parameters: createObjectSchema(
-      { text: nullableString, reaction: nullableString },
-      ["text", "reaction"],
-    ),
+    parameters: createObjectSchema({ text: nullableString, reaction: nullableString }, [
+      "text",
+      "reaction",
+    ]),
   },
   async execute(call) {
     const input = parseArguments(call.arguments);

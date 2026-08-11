@@ -1,9 +1,6 @@
 import type { ChatTransport } from "../../app/ChatTransport.js";
 import type { Logger } from "../../logger.js";
-import {
-  localScheduleToDate,
-  type ScheduleRepeat,
-} from "../../scheduling/scheduleTime.js";
+import { localScheduleToDate, type ScheduleRepeat } from "../../scheduling/scheduleTime.js";
 import { SCHEDULE_TIME_ZONE } from "../../scheduling/ScheduledMessageScheduler.js";
 import type {
   ScheduledMessage,
@@ -100,7 +97,11 @@ async function executeSchedule(
   if (targetUsernames.length === 0) return fail("at least one real user must be targeted");
   if (repeat === undefined) return fail("repeat must be none, daily, or weekly");
   if (activeChannelId === undefined) return fail("no active Discord channel");
-  if (creator === undefined || creator.userId.trim().length === 0 || creator.username.trim().length === 0) {
+  if (
+    creator === undefined ||
+    creator.userId.trim().length === 0 ||
+    creator.username.trim().length === 0
+  ) {
     return fail("missing creator");
   }
 
@@ -120,13 +121,15 @@ async function executeSchedule(
 
   try {
     const activeChannel = await dependencies.gateway.fetchChannel(activeChannelId);
-    if (activeChannel?.guildId === undefined) return await fail("active channel is not in a server");
-    const targetChannel = channelName.length === 0
-      ? activeChannel
-      : findMatchingChannel(
-        channelName,
-        await dependencies.gateway.fetchGuildChannels(activeChannel.guildId),
-      );
+    if (activeChannel?.guildId === undefined)
+      return await fail("active channel is not in a server");
+    const targetChannel =
+      channelName.length === 0
+        ? activeChannel
+        : findMatchingChannel(
+            channelName,
+            await dependencies.gateway.fetchGuildChannels(activeChannel.guildId),
+          );
     if (targetChannel === undefined || targetChannel.sendable === false) {
       return await fail("target channel is not sendable or could not be found");
     }
@@ -153,11 +156,13 @@ async function executeSchedule(
       createdByUsername: creator.username,
     });
     await sendCreationStatus(dependencies, activeChannelId, formatCreatedStatus(scheduled));
-    await dependencies.status.logStatus(
-      `Created scheduled message ${scheduled.id} for #${scheduled.channelName} at ${scheduled.nextRunAt} (${scheduled.repeat}).`,
-    ).catch((error: unknown) => {
-      dependencies.logger.warn("scheduled_messages.create_log_failed", { error: String(error) });
-    });
+    await dependencies.status
+      .logStatus(
+        `Created scheduled message ${scheduled.id} for #${scheduled.channelName} at ${scheduled.nextRunAt} (${scheduled.repeat}).`,
+      )
+      .catch((error: unknown) => {
+        dependencies.logger.warn("scheduled_messages.create_log_failed", { error: String(error) });
+      });
     return {
       type: "continue",
       result: {
@@ -188,8 +193,9 @@ async function resolveTargets(
     if (normalized === "everyone" || normalized === "here") {
       throw new Error("target usernames must be real Discord users");
     }
-    const candidates = (await gateway.searchGuildMembers(guildId, username))
-      .filter((member) => !member.bot);
+    const candidates = (await gateway.searchGuildMembers(guildId, username)).filter(
+      (member) => !member.bot,
+    );
     const member = findMatchingMember(username, candidates);
     if (member === undefined) {
       throw new Error(`no matching server member found for "${username}"`);
@@ -214,19 +220,20 @@ async function sendCreationStatus(
     dependencies.logger.warn("discord.schedule_status_failed", { error: "Missing channel ID" });
     return;
   }
-  await dependencies.gateway.sendMessage(channelId, escapeBroadcastMentions(text), {
-    allowUserMentions: false,
-  }).catch((error: unknown) => {
-    dependencies.logger.warn("discord.schedule_status_failed", { error: String(error) });
-  });
+  await dependencies.gateway
+    .sendMessage(channelId, escapeBroadcastMentions(text), {
+      allowUserMentions: false,
+    })
+    .catch((error: unknown) => {
+      dependencies.logger.warn("discord.schedule_status_failed", { error: String(error) });
+    });
 }
 
 /** Formats the successful status displayed in the active conversation. */
 function formatCreatedStatus(message: ScheduledMessage): string {
   const targets = message.targetUsers.map((target) => `@${target.username}`).join(", ");
-  const repeat = message.repeat === "none"
-    ? "once"
-    : `every ${message.repeat === "daily" ? "day" : "week"}`;
+  const repeat =
+    message.repeat === "none" ? "once" : `every ${message.repeat === "daily" ? "day" : "week"}`;
   return `> ⏰ Scheduled ${repeat} for ${message.runDate} at ${message.runTime} to ${targets}`;
 }
 
@@ -238,7 +245,7 @@ function failure(error: string): ToolResult {
 /** Narrows unknown model arguments to a record. */
 function parseArguments(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 

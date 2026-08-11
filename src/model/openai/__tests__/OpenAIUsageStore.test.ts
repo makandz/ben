@@ -6,9 +6,7 @@ import test from "node:test";
 
 import { OpenAIUsageStore } from "../OpenAIUsageStore.js";
 
-const fixturePath = path.resolve(
-  "src/testing/fixtures/openai-usage-month.json",
-);
+const fixturePath = path.resolve("src/testing/fixtures/openai-usage-month.json");
 const fixtureDate = new Date(2026, 0, 2, 12);
 
 test("reads the current monthly usage shape and enforces a positive budget", async (context) => {
@@ -70,7 +68,7 @@ test("records all token categories and atomically updates compatible JSON", asyn
 
 test("rejects malformed persisted usage rather than resetting costs", async (context) => {
   const directory = await createTempDirectory(context);
-  await writeFile(path.join(directory, "2601.json"), "{\"month\":\"2601\",\"days\":{\"260102\":{}}}");
+  await writeFile(path.join(directory, "2601.json"), '{"month":"2601","days":{"260102":{}}}');
   const store = new OpenAIUsageStore(directory, "gpt-5.4-mini", 1);
 
   await assert.rejects(store.getTodaySummary(fixtureDate), /Invalid OpenAI usage entry/);

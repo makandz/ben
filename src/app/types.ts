@@ -23,7 +23,13 @@ export type TokenUsage = {
 };
 
 export type ConversationOutcome =
-  | { type: "reply"; text: string; reaction?: string; reasoningSummary?: string; history: ConversationItem[] }
+  | {
+      type: "reply";
+      text: string;
+      reaction?: string;
+      reasoningSummary?: string;
+      history: ConversationItem[];
+    }
   | { type: "react"; reaction: string; reasoningSummary?: string; history: ConversationItem[] }
   | { type: "wait"; history: ConversationItem[] }
   | { type: "sleep"; summary: string; text?: string; reaction?: string }

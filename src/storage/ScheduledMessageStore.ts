@@ -169,7 +169,8 @@ export class ScheduledMessageStore {
       parsed = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
     } catch (error) {
       if (isNotFoundError(error)) return { version: 1, messages: [] };
-      if (error instanceof SyntaxError) throw new Error(`${this.filePath} must contain valid JSON.`);
+      if (error instanceof SyntaxError)
+        throw new Error(`${this.filePath} must contain valid JSON.`);
       throw error;
     }
 

@@ -59,9 +59,10 @@ function executeCurrentChannel(input: Record<string, unknown>): ToolResult {
   return {
     type: "finish",
     result: { ok: true, pausedUntil: "new_human_message" },
-    outcome: text.length > 0
-      ? { type: "reply", text, ...(reaction.length > 0 ? { reaction } : {}) }
-      : { type: "react", reaction },
+    outcome:
+      text.length > 0
+        ? { type: "reply", text, ...(reaction.length > 0 ? { reaction } : {}) }
+        : { type: "react", reaction },
   };
 }
 
@@ -94,7 +95,8 @@ async function executeCrossChannel(
 
   try {
     const activeChannel = await dependencies.gateway.fetchChannel(activeChannelId);
-    if (activeChannel?.guildId === undefined) return await fail("active channel is not in a server");
+    if (activeChannel?.guildId === undefined)
+      return await fail("active channel is not in a server");
     const target = findMatchingChannel(
       channelName,
       await dependencies.gateway.fetchGuildChannels(activeChannel.guildId),
@@ -121,7 +123,7 @@ function failure(error: string): ToolResult {
 /** Narrows unknown model arguments to a record. */
 function parseArguments(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 

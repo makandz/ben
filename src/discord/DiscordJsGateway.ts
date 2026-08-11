@@ -1,9 +1,4 @@
-import {
-  ActivityType,
-  Client,
-  Events,
-  GatewayIntentBits,
-} from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
 
 import type {
   DiscordChannel,
@@ -53,7 +48,9 @@ export class DiscordJsGateway implements DiscordGateway {
       if (!interaction.isChatInputCommand()) return;
       this.handlers?.command({
         name: interaction.commandName,
-        reply: async (content) => { await interaction.reply(content); },
+        reply: async (content) => {
+          await interaction.reply(content);
+        },
       });
     });
     client.on(Events.Error, (error) => {
@@ -134,7 +131,9 @@ export class DiscordJsGateway implements DiscordGateway {
   async fetchGuildChannels(guildId: string): Promise<readonly DiscordChannel[]> {
     const guild = await this.client.guilds.fetch(guildId);
     const channels = await guild.channels.fetch();
-    return [...channels.values()].flatMap((channel) => (channel === null ? [] : [toChannel(channel)]));
+    return [...channels.values()].flatMap((channel) =>
+      channel === null ? [] : [toChannel(channel)],
+    );
   }
 
   /**
@@ -212,9 +211,10 @@ export class DiscordJsGateway implements DiscordGateway {
    * @param command - Global command name and description.
    * @returns Whether the command was newly registered or updated.
    */
-  async registerCommand(
-    command: { name: string; description: string },
-  ): Promise<"registered" | "updated"> {
+  async registerCommand(command: {
+    name: string;
+    description: string;
+  }): Promise<"registered" | "updated"> {
     const commands = await this.client.application?.commands.fetch();
     const existing = commands?.find((candidate) => candidate.name === command.name);
     if (existing === undefined) {
@@ -239,7 +239,8 @@ function toChannel(channel: {
   name?: string | null;
   guildId?: string;
 }): DiscordChannel {
-  const name = typeof channel.name === "string" && channel.name.length > 0 ? channel.name : undefined;
+  const name =
+    typeof channel.name === "string" && channel.name.length > 0 ? channel.name : undefined;
   const guildId = channel.isDMBased() ? undefined : channel.guildId;
   return {
     id: channel.id,

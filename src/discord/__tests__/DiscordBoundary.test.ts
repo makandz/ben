@@ -64,17 +64,19 @@ test("adapter normalizes human messages, detects pings, and ignores bots", () =>
   gateway.emitTyping({ channel: general, user: bot });
 
   assert.deepEqual(ready, ["ben"]);
-  assert.deepEqual(messages, [{
-    message: {
-      id: "message-1",
-      channelId: "channel-1",
-      userId: "user-1",
-      username: "Makan",
-      content: "hello @ben, see #plans",
-      createdAt: 123,
+  assert.deepEqual(messages, [
+    {
+      message: {
+        id: "message-1",
+        channelId: "channel-1",
+        userId: "user-1",
+        username: "Makan",
+        content: "hello @ben, see #plans",
+        createdAt: 123,
+      },
+      pinged: true,
     },
-    pinged: true,
-  }]);
+  ]);
   assert.deepEqual(typings, [["channel-1", "user-1", "Makan"]]);
   void adapter;
 });
@@ -129,7 +131,9 @@ test("transport resolves unique names and sends only safe mentions", async () =>
     },
   ]);
   assert.deepEqual(gateway.typing, ["channel-1"]);
-  assert.deepEqual(gateway.reactions, [{ channelId: "channel-1", messageId: "message-1", emoji: "👍" }]);
+  assert.deepEqual(gateway.reactions, [
+    { channelId: "channel-1", messageId: "message-1", emoji: "👍" },
+  ]);
   assert.deepEqual(gateway.memberSearches, [{ guildId: "guild-1", query: "makan" }]);
 });
 
@@ -165,7 +169,10 @@ test("directories use exact matches and require uniqueness", () => {
   assert.equal(findMatchingMember("sam_one", members)?.id, "1");
   assert.equal(findMatchingMember("missing", members), undefined);
   assert.equal(findMatchingChannel("general", [general])?.id, "channel-1");
-  assert.equal(findMatchingChannel("general", [general, { ...general, id: "duplicate" }]), undefined);
+  assert.equal(
+    findMatchingChannel("general", [general, { ...general, id: "duplicate" }]),
+    undefined,
+  );
 });
 
 test("presence is a separate application capability", () => {
@@ -192,10 +199,18 @@ class FakeDiscordGateway implements DiscordGateway {
   presences: Array<{ status: "idle" | "online"; activity: string | undefined }> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
 
-  setHandlers(handlers: DiscordGatewayHandlers): void { this.handlers = handlers; }
-  async login(token: string): Promise<void> { this.loginToken = token; }
-  async destroy(): Promise<void> { this.destroyed = true; }
-  getBotUser(): DiscordUser | undefined { return this.botUser; }
+  setHandlers(handlers: DiscordGatewayHandlers): void {
+    this.handlers = handlers;
+  }
+  async login(token: string): Promise<void> {
+    this.loginToken = token;
+  }
+  async destroy(): Promise<void> {
+    this.destroyed = true;
+  }
+  getBotUser(): DiscordUser | undefined {
+    return this.botUser;
+  }
   async fetchChannel(channelId: string): Promise<DiscordChannel | undefined> {
     return this.channels.find((channel) => channel.id === channelId);
   }
@@ -203,20 +218,39 @@ class FakeDiscordGateway implements DiscordGateway {
     this.memberSearches.push({ guildId, query });
     return this.members;
   }
-  async fetchGuildChannels(): Promise<readonly DiscordChannel[]> { return this.channels; }
-  async sendMessage(channelId: string, content: string, options: DiscordSendOptions): Promise<void> {
+  async fetchGuildChannels(): Promise<readonly DiscordChannel[]> {
+    return this.channels;
+  }
+  async sendMessage(
+    channelId: string,
+    content: string,
+    options: DiscordSendOptions,
+  ): Promise<void> {
     this.sent.push({ channelId, content, options });
   }
-  async sendTyping(channelId: string): Promise<void> { this.typing.push(channelId); }
+  async sendTyping(channelId: string): Promise<void> {
+    this.typing.push(channelId);
+  }
   async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
     this.reactions.push({ channelId, messageId, emoji });
   }
   setPresence(status: "idle" | "online", activity?: string): void {
     this.presences.push({ status, activity });
   }
-  async registerCommand(): Promise<"registered"> { return "registered"; }
-  emitReady(user: DiscordUser): void { this.botUser = user; this.handlers?.ready(user); }
-  emitMessage(message: Parameters<DiscordGatewayHandlers["message"]>[0]): void { this.handlers?.message(message); }
-  emitTyping(event: Parameters<DiscordGatewayHandlers["typing"]>[0]): void { this.handlers?.typing(event); }
-  emitError(error: unknown): void { this.handlers?.error(error); }
+  async registerCommand(): Promise<"registered"> {
+    return "registered";
+  }
+  emitReady(user: DiscordUser): void {
+    this.botUser = user;
+    this.handlers?.ready(user);
+  }
+  emitMessage(message: Parameters<DiscordGatewayHandlers["message"]>[0]): void {
+    this.handlers?.message(message);
+  }
+  emitTyping(event: Parameters<DiscordGatewayHandlers["typing"]>[0]): void {
+    this.handlers?.typing(event);
+  }
+  emitError(error: unknown): void {
+    this.handlers?.error(error);
+  }
 }

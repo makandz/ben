@@ -36,8 +36,10 @@ export class InternalActionRunner {
         tools: [],
       });
       const text = turn.items
-        .filter((item): item is Extract<typeof item, { type: "message" }> =>
-          item.type === "message" && item.role === "assistant")
+        .filter(
+          (item): item is Extract<typeof item, { type: "message" }> =>
+            item.type === "message" && item.role === "assistant",
+        )
         .map((item) => item.text)
         .join("\n")
         .trim();
@@ -51,7 +53,10 @@ export class InternalActionRunner {
     } catch (error) {
       if (error instanceof ModelBudgetExceededError) {
         this.logger.warn("internal.budget_exceeded", {
-          action: "status", day: error.day, costUsd: error.costUsd, budgetUsd: error.budgetUsd,
+          action: "status",
+          day: error.day,
+          costUsd: error.costUsd,
+          budgetUsd: error.budgetUsd,
         });
         return {
           type: "budget_exceeded",

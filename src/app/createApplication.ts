@@ -18,7 +18,10 @@ import { InternalStateStore } from "../internal/InternalStateStore.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
 import { formatBotTime } from "../scheduling/scheduleTime.js";
-import { ScheduledMessageScheduler, SCHEDULE_TIME_ZONE } from "../scheduling/ScheduledMessageScheduler.js";
+import {
+  ScheduledMessageScheduler,
+  SCHEDULE_TIME_ZONE,
+} from "../scheduling/ScheduledMessageScheduler.js";
 import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
@@ -78,23 +81,37 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
 
   let session: BotSession;
   const tools = new ToolRegistry([waitTool, sleepTool]);
-  tools.register(createSendMessageTool({
-    gateway, transport, channels,
-    getActiveChannelId: () => session.getActiveChannelId(),
-    recordBotMessage: (channelId, content) => session.recordBotMessage(channelId, content),
-    logger,
-  }));
-  tools.register(createRememberPersonTool({
-    gateway, users, store: people,
-    getActiveChannelId: () => session.getActiveChannelId(),
-    logger,
-  }));
-  tools.register(createScheduledMessageTool({
-    gateway, users, channels, store: schedules, status: transport,
-    getActiveChannelId: () => session.getActiveChannelId(),
-    getCreator: () => session.getActiveCreator(),
-    logger,
-  }));
+  tools.register(
+    createSendMessageTool({
+      gateway,
+      transport,
+      channels,
+      getActiveChannelId: () => session.getActiveChannelId(),
+      recordBotMessage: (channelId, content) => session.recordBotMessage(channelId, content),
+      logger,
+    }),
+  );
+  tools.register(
+    createRememberPersonTool({
+      gateway,
+      users,
+      store: people,
+      getActiveChannelId: () => session.getActiveChannelId(),
+      logger,
+    }),
+  );
+  tools.register(
+    createScheduledMessageTool({
+      gateway,
+      users,
+      channels,
+      store: schedules,
+      status: transport,
+      getActiveChannelId: () => session.getActiveChannelId(),
+      getCreator: () => session.getActiveCreator(),
+      logger,
+    }),
+  );
   session = new BotSession(
     dependencies.instructions,
     new ConversationOrchestrator(dependencies.conversationModel, tools),
@@ -110,23 +127,30 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   );
 
   let ready = false;
-  const adapter = new DiscordAdapter(gateway, {
-    handleMessage: (message, pinged) => session.handleMessage(message, pinged),
-    handleTyping: (channelId, userId, username) => session.handleTyping(channelId, userId, username),
-    handleReady: () => {
-      if (ready) return;
-      ready = true;
-      internalScheduler.setAwakePresence(false);
-      void internalScheduler.start();
-      void scheduledScheduler.start();
-      void registerUsageCommand(gateway, logger).catch((error: unknown) => {
-        logger.warn("discord.command_registration_failed", { error: String(error) });
-      });
+  const adapter = new DiscordAdapter(
+    gateway,
+    {
+      handleMessage: (message, pinged) => session.handleMessage(message, pinged),
+      handleTyping: (channelId, userId, username) =>
+        session.handleTyping(channelId, userId, username),
+      handleReady: () => {
+        if (ready) return;
+        ready = true;
+        internalScheduler.setAwakePresence(false);
+        void internalScheduler.start();
+        void scheduledScheduler.start();
+        void registerUsageCommand(gateway, logger).catch((error: unknown) => {
+          logger.warn("discord.command_registration_failed", { error: String(error) });
+        });
+      },
+      handleCommand: (name, reply) => {
+        if (name === "usage") void handleUsageCommand({ reply }, dependencies.usageStore, logger);
+      },
     },
-    handleCommand: (name, reply) => {
-      if (name === "usage") void handleUsageCommand({ reply }, dependencies.usageStore, logger);
-    },
-  }, users, channels, logger);
+    users,
+    channels,
+    logger,
+  );
 
   return {
     start: () => adapter.start(env.discordToken),

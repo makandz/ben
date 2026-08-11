@@ -60,21 +60,37 @@ test("remember-person controls empty, ambiguous, duplicate, and lookup failures"
     createRememberPersonTool({
       gateway,
       users: new UserMentionDirectory(),
-      store: { async remember() { return storeResult; } },
+      store: {
+        async remember() {
+          return storeResult;
+        },
+      },
       getActiveChannelId: () => "general",
       logger,
     });
 
-  assert.match(JSON.stringify(await execute(create(), { username: "", name: "Name" })), /non-empty/);
+  assert.match(
+    JSON.stringify(await execute(create(), { username: "", name: "Name" })),
+    /non-empty/,
+  );
   gateway.members = [
     { id: "one", username: "sam_one", displayName: "Sam", bot: false },
     { id: "two", username: "sam_two", displayName: "Sam", bot: false },
   ];
-  assert.match(JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })), /no matching/);
+  assert.match(
+    JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),
+    /no matching/,
+  );
   gateway.members = [{ id: "one", username: "sam", displayName: "Sam", bot: false }];
-  assert.match(JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })), /already known/);
+  assert.match(
+    JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),
+    /already known/,
+  );
   gateway.memberError = new Error("Discord unavailable");
-  assert.match(JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })), /Discord unavailable/);
+  assert.match(
+    JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),
+    /Discord unavailable/,
+  );
 });
 
 test("send-message preserves terminal current-channel behavior", async () => {
@@ -84,7 +100,10 @@ test("send-message preserves terminal current-channel behavior", async () => {
     result: { ok: true, pausedUntil: "new_human_message" },
     outcome: { type: "reply", text: "hello", reaction: "👍" },
   });
-  assert.match(JSON.stringify(await execute(tool, { text: null, reaction: "no", channel: null })), /exactly one/);
+  assert.match(
+    JSON.stringify(await execute(tool, { text: null, reaction: "no", channel: null })),
+    /exactly one/,
+  );
 });
 
 test("cross-channel send resolves uniquely and records successful bot context", async () => {
@@ -94,10 +113,13 @@ test("cross-channel send resolves uniquely and records successful bot context", 
   const recorded: unknown[] = [];
   const tool = createSendTool(gateway, transport, (...values) => recorded.push(values));
 
-  assert.deepEqual(await execute(tool, { text: "see you there", reaction: null, channel: "#plans" }), {
-    type: "continue",
-    result: { ok: true, channel: "plans", channelId: "plans" },
-  });
+  assert.deepEqual(
+    await execute(tool, { text: "see you there", reaction: null, channel: "#plans" }),
+    {
+      type: "continue",
+      result: { ok: true, channel: "plans", channelId: "plans" },
+    },
+  );
   assert.deepEqual(transport.messages, [{ channelId: "plans", text: "see you there" }]);
   assert.deepEqual(recorded, [["plans", "see you there"]]);
 });
@@ -107,12 +129,21 @@ test("cross-channel send reports missing, ambiguous, and transport failures with
   const transport = new FakeTransport();
   const recorded: unknown[] = [];
   const tool = createSendTool(gateway, transport, (...values) => recorded.push(values));
-  assert.match(JSON.stringify(await execute(tool, { text: "hi", channel: "missing", reaction: null })), /no matching/);
+  assert.match(
+    JSON.stringify(await execute(tool, { text: "hi", channel: "missing", reaction: null })),
+    /no matching/,
+  );
   gateway.channels = [general, plans, { ...plans, id: "plans-two" }];
-  assert.match(JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })), /no matching/);
+  assert.match(
+    JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })),
+    /no matching/,
+  );
   gateway.channels = [general, plans];
   transport.failChannelId = "plans";
-  assert.match(JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })), /send failed/);
+  assert.match(
+    JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })),
+    /send failed/,
+  );
   assert.deepEqual(recorded, []);
 });
 
@@ -125,12 +156,16 @@ test("scheduled-message tool verifies targets and stores a future local schedule
   ];
   const added: CreateScheduledMessageInput[] = [];
   const statuses: string[] = [];
-  const tool = createScheduleTool(gateway, {
-    async add(input) {
-      added.push(input);
-      return storedSchedule(input);
+  const tool = createScheduleTool(
+    gateway,
+    {
+      async add(input) {
+        added.push(input);
+        return storedSchedule(input);
+      },
     },
-  }, statuses);
+    statuses,
+  );
 
   const result = await execute(tool, {
     message: "  remember   the thing  ",
@@ -168,12 +203,17 @@ test("scheduled-message tool verifies targets and stores a future local schedule
 
 test("scheduled-message tool controls content, creator, destination, target, time, and recurrence", async () => {
   const gateway = new FakeGateway();
-  const store = { async add(input: CreateScheduledMessageInput) { return storedSchedule(input); } };
-  const create = (creator: { userId: string; username: string } | null = {
-    userId: "creator",
-    username: "Creator",
-  }) =>
-    createScheduleTool(gateway, store, [], creator);
+  const store = {
+    async add(input: CreateScheduledMessageInput) {
+      return storedSchedule(input);
+    },
+  };
+  const create = (
+    creator: { userId: string; username: string } | null = {
+      userId: "creator",
+      username: "Creator",
+    },
+  ) => createScheduleTool(gateway, store, [], creator);
   const valid = {
     message: "hello",
     target_usernames: ["makan"],
@@ -185,43 +225,62 @@ test("scheduled-message tool controls content, creator, destination, target, tim
 
   assert.match(JSON.stringify(await execute(create(), { ...valid, message: " " })), /1-1000/);
   assert.match(JSON.stringify(await execute(create(null), valid)), /missing creator/);
-  assert.match(JSON.stringify(await execute(create(), { ...valid, run_date: "2025-12-31" })), /future/);
-  assert.match(JSON.stringify(await execute(create(), { ...valid, repeat: "monthly" })), /repeat must/);
-  assert.match(JSON.stringify(await execute(create(), { ...valid, target_usernames: ["@everyone"] })), /real Discord users/);
+  assert.match(
+    JSON.stringify(await execute(create(), { ...valid, run_date: "2025-12-31" })),
+    /future/,
+  );
+  assert.match(
+    JSON.stringify(await execute(create(), { ...valid, repeat: "monthly" })),
+    /repeat must/,
+  );
+  assert.match(
+    JSON.stringify(await execute(create(), { ...valid, target_usernames: ["@everyone"] })),
+    /real Discord users/,
+  );
 
   gateway.members = [
     { id: "one", username: "sam_one", displayName: "Sam", bot: false },
     { id: "two", username: "sam_two", displayName: "Sam", bot: false },
   ];
-  assert.match(JSON.stringify(await execute(create(), { ...valid, target_usernames: ["sam"] })), /no matching/);
+  assert.match(
+    JSON.stringify(await execute(create(), { ...valid, target_usernames: ["sam"] })),
+    /no matching/,
+  );
   gateway.channels = [general, { ...plans, sendable: false }];
-  assert.match(JSON.stringify(await execute(create(), { ...valid, channel: "plans" })), /not sendable/);
+  assert.match(
+    JSON.stringify(await execute(create(), { ...valid, channel: "plans" })),
+    /not sendable/,
+  );
 });
 
 test("scheduled delivery pings only stored target IDs with an explicit mention policy", async () => {
   const gateway = new FakeGateway();
   const deliver = createScheduledMessageDelivery(gateway);
-  await deliver(storedSchedule({
-    channelId: "plans",
-    channelName: "plans",
-    message: "hello @everyone <@999>",
-    targetUsers: [
-      { userId: "one", username: "makan" },
-      { userId: "two", username: "friend" },
-    ],
-    runDate: "2026-01-02",
-    runTime: "09:30",
-    repeat: "none",
-    nextRunAt: new Date("2026-01-02T14:30:00.000Z"),
-    createdByUserId: "creator",
-    createdByUsername: "Creator",
-  }));
+  await deliver(
+    storedSchedule({
+      channelId: "plans",
+      channelName: "plans",
+      message: "hello @everyone <@999>",
+      targetUsers: [
+        { userId: "one", username: "makan" },
+        { userId: "two", username: "friend" },
+      ],
+      runDate: "2026-01-02",
+      runTime: "09:30",
+      repeat: "none",
+      nextRunAt: new Date("2026-01-02T14:30:00.000Z"),
+      createdByUserId: "creator",
+      createdByUsername: "Creator",
+    }),
+  );
 
-  assert.deepEqual(gateway.sent, [{
-    channelId: "plans",
-    content: "<@one> <@two> hello @\u200beveryone <@\u200b999>",
-    options: { allowUserMentions: true },
-  }]);
+  assert.deepEqual(gateway.sent, [
+    {
+      channelId: "plans",
+      content: "<@one> <@two> hello @\u200beveryone <@\u200b999>",
+      options: { allowUserMentions: true },
+    },
+  ]);
 });
 
 test("Discord capability tools register through the generic tool registry", () => {
@@ -231,13 +290,23 @@ test("Discord capability tools register through the generic tool registry", () =
   const rememberPerson = createRememberPersonTool({
     gateway,
     users: new UserMentionDirectory(),
-    store: { async remember() { return { ok: false, error: "unused" }; } },
+    store: {
+      async remember() {
+        return { ok: false, error: "unused" };
+      },
+    },
     getActiveChannelId: () => "general",
     logger,
   });
-  const scheduledMessage = createScheduleTool(gateway, {
-    async add(input) { return storedSchedule(input); },
-  }, []);
+  const scheduledMessage = createScheduleTool(
+    gateway,
+    {
+      async add(input) {
+        return storedSchedule(input);
+      },
+    },
+    [],
+  );
   const registry = new ToolRegistry([
     sendMessage,
     rememberPerson,
@@ -246,13 +315,16 @@ test("Discord capability tools register through the generic tool registry", () =
     sleepTool,
   ]);
 
-  assert.deepEqual(registry.definitions().map(({ name }) => name), [
-    "send_message",
-    "remember_person",
-    "create_scheduled_message",
-    "wait_for_more_messages",
-    "sleep_conversation",
-  ]);
+  assert.deepEqual(
+    registry.definitions().map(({ name }) => name),
+    [
+      "send_message",
+      "remember_person",
+      "create_scheduled_message",
+      "wait_for_more_messages",
+      "sleep_conversation",
+    ],
+  );
 });
 
 function createSendTool(
@@ -284,7 +356,11 @@ function createScheduleTool(
     users: new UserMentionDirectory(),
     channels: new ChannelMentionDirectory(),
     store,
-    status: { async logStatus(text) { statuses.push(text); } },
+    status: {
+      async logStatus(text) {
+        statuses.push(text);
+      },
+    },
     getActiveChannelId: () => "general",
     getCreator: () => creator ?? undefined,
     logger,
@@ -313,7 +389,12 @@ function storedSchedule(input: CreateScheduledMessageInput): ScheduledMessage {
 }
 
 async function execute(tool: Tool, argumentsValue: unknown) {
-  return tool.execute({ type: "tool_call", callId: "call", name: tool.definition.name, arguments: argumentsValue });
+  return tool.execute({
+    type: "tool_call",
+    callId: "call",
+    name: tool.definition.name,
+    arguments: argumentsValue,
+  });
 }
 
 class FakeTransport implements ChatTransport {
@@ -336,7 +417,9 @@ class FakeGateway implements DiscordGateway {
   setHandlers(_handlers: DiscordGatewayHandlers): void {}
   async login(_token: string): Promise<void> {}
   async destroy(): Promise<void> {}
-  getBotUser(): DiscordUser | undefined { return undefined; }
+  getBotUser(): DiscordUser | undefined {
+    return undefined;
+  }
   async fetchChannel(channelId: string): Promise<DiscordChannel | undefined> {
     return this.channels.find((channel) => channel.id === channelId);
   }
@@ -344,12 +427,20 @@ class FakeGateway implements DiscordGateway {
     if (this.memberError !== undefined) throw this.memberError;
     return this.members;
   }
-  async fetchGuildChannels(): Promise<readonly DiscordChannel[]> { return this.channels; }
-  async sendMessage(channelId: string, content: string, options: DiscordSendOptions): Promise<void> {
+  async fetchGuildChannels(): Promise<readonly DiscordChannel[]> {
+    return this.channels;
+  }
+  async sendMessage(
+    channelId: string,
+    content: string,
+    options: DiscordSendOptions,
+  ): Promise<void> {
     this.sent.push({ channelId, content, options });
   }
   async sendTyping(_channelId: string): Promise<void> {}
   async addReaction(_channelId: string, _messageId: string, _emoji: string): Promise<void> {}
   setPresence(_status: "idle" | "online", _activity?: string): void {}
-  async registerCommand(): Promise<"registered"> { return "registered"; }
+  async registerCommand(): Promise<"registered"> {
+    return "registered";
+  }
 }

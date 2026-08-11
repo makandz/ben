@@ -289,9 +289,12 @@ export class BotSession {
 
   /** Finds when a channel is quiet enough to process. */
   private getDebounceDueAt(channelId: string, now: number): number {
-    const messageDueAt = (this.lastMessageAt.get(channelId) ?? now) + this.timings.messageDebounceMs;
-    const typingDueAt = this.getActiveTyping(channelId, now)
-      .reduce((latest, activity) => Math.max(latest, activity.expiresAt), 0);
+    const messageDueAt =
+      (this.lastMessageAt.get(channelId) ?? now) + this.timings.messageDebounceMs;
+    const typingDueAt = this.getActiveTyping(channelId, now).reduce(
+      (latest, activity) => Math.max(latest, activity.expiresAt),
+      0,
+    );
     return Math.max(messageDueAt, typingDueAt);
   }
 
@@ -322,21 +325,21 @@ export class BotSession {
     this.pendingRecentContext = [];
     this.mode = "processing";
     const creator = messages[0];
-    this.activeCreator = creator === undefined
-      ? undefined
-      : { userId: creator.userId, username: creator.username };
+    this.activeCreator =
+      creator === undefined ? undefined : { userId: creator.userId, username: creator.username };
 
     const stopTyping = this.startTyping(channelId);
     const includeFirstPromptContext = this.history.length === 0;
-    const knownPeople = await this.persistence.knownPeople?.listForPrompt().catch((error: unknown) => {
-      this.logger.warn("known_people.read_failed", { error: String(error) });
-      return {};
-    }) ?? {};
+    const knownPeople =
+      (await this.persistence.knownPeople?.listForPrompt().catch((error: unknown) => {
+        this.logger.warn("known_people.read_failed", { error: String(error) });
+        return {};
+      })) ?? {};
     const recentConversationSummaries = includeFirstPromptContext
-      ? await this.persistence.summaries?.list().catch((error: unknown) => {
+      ? ((await this.persistence.summaries?.list().catch((error: unknown) => {
           this.logger.warn("conversation_summaries.read_failed", { error: String(error) });
           return [];
-        }) ?? []
+        })) ?? [])
       : [];
     const currentActivityStatus = this.promptContext.getCurrentActivityStatus?.();
     const currentBotTime = this.promptContext.getCurrentBotTime?.();

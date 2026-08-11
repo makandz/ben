@@ -14,11 +14,13 @@ const request: ModelRequest = {
     { type: "tool_call", callId: "call-1", name: "lookup", arguments: { query: "x" } },
     { type: "tool_result", callId: "call-1", result: { found: true } },
   ],
-  tools: [{
-    name: "lookup",
-    description: "Looks up a value.",
-    parameters: { type: "object", properties: { query: { type: "string" } } },
-  }],
+  tools: [
+    {
+      name: "lookup",
+      description: "Looks up a value.",
+      parameters: { type: "object", properties: { query: { type: "string" } } },
+    },
+  ],
 };
 
 test("maps portable history and arbitrary tools into a Responses API request", () => {
@@ -31,21 +33,23 @@ test("maps portable history and arbitrary tools into a Responses API request", (
       type: "function_call",
       call_id: "call-1",
       name: "lookup",
-      arguments: "{\"query\":\"x\"}",
+      arguments: '{"query":"x"}',
     },
     {
       type: "function_call_output",
       call_id: "call-1",
-      output: "{\"found\":true}",
+      output: '{"found":true}',
     },
   ]);
-  assert.deepEqual(mapper.toTools(request), [{
-    type: "function",
-    name: "lookup",
-    description: "Looks up a value.",
-    parameters: { type: "object", properties: { query: { type: "string" } } },
-    strict: true,
-  }]);
+  assert.deepEqual(mapper.toTools(request), [
+    {
+      type: "function",
+      name: "lookup",
+      description: "Looks up a value.",
+      parameters: { type: "object", properties: { query: { type: "string" } } },
+      strict: true,
+    },
+  ]);
 });
 
 test("maps text, reasoning, calls, usage, and private continuation data", () => {
@@ -145,7 +149,7 @@ function createResponse(): Response {
         type: "function_call",
         call_id: "call-2",
         name: "lookup",
-        arguments: "{\"query\":\"weather\"}",
+        arguments: '{"query":"weather"}',
         status: "completed",
       },
     ],

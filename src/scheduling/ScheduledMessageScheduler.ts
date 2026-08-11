@@ -1,8 +1,5 @@
 import type { Logger } from "../logger.js";
-import type {
-  ScheduledMessage,
-  ScheduledMessageStore,
-} from "../storage/ScheduledMessageStore.js";
+import type { ScheduledMessage, ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { computeNextRunAt } from "./scheduleTime.js";
 
 export const SCHEDULE_CHECK_INTERVAL_MS = 30_000;
@@ -171,9 +168,10 @@ function computeNextFutureRunAt(
 
 /** Formats an operational success line with recurrence state. */
 function formatSentLogLine(message: ScheduledMessage, nextRunAt: Date | undefined): string {
-  const targetText = message.targetUsers.length === 0
-    ? "no targets"
-    : message.targetUsers.map((target) => `@${target.username}`).join(", ");
+  const targetText =
+    message.targetUsers.length === 0
+      ? "no targets"
+      : message.targetUsers.map((target) => `@${target.username}`).join(", ");
   if (nextRunAt === undefined) {
     return `Sent scheduled message ${message.id} to #${message.channelName} (${targetText}); schedule complete.`;
   }

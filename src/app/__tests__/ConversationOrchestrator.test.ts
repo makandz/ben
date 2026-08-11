@@ -65,9 +65,7 @@ test("loops through a capability tool and finishes with portable history", async
 
 test("preserves prior history without mutating the caller's array", async () => {
   const history = [{ type: "message" as const, role: "assistant" as const, text: "earlier" }];
-  const model = new ScriptedModel([
-    { items: [createToolCall("1", "wait_for_more_messages", {})] },
-  ]);
+  const model = new ScriptedModel([{ items: [createToolCall("1", "wait_for_more_messages", {})] }]);
   const orchestrator = new ConversationOrchestrator(
     model,
     new ToolRegistry(conversationControlTools),
@@ -75,9 +73,7 @@ test("preserves prior history without mutating the caller's array", async () => 
 
   await orchestrator.run("system prompt", history, "new message");
 
-  assert.deepEqual(history, [
-    { type: "message", role: "assistant", text: "earlier" },
-  ]);
+  assert.deepEqual(history, [{ type: "message", role: "assistant", text: "earlier" }]);
   assert.deepEqual(model.requests[0]?.history, [
     { type: "message", role: "assistant", text: "earlier" },
     { type: "message", role: "user", text: "new message" },
@@ -145,10 +141,7 @@ test("turns missing tool calls and execution failures into controlled outcomes",
     new ScriptedModel([{ items: [] }]),
     new ToolRegistry(),
   );
-  const failedModel = new ConversationOrchestrator(
-    new ScriptedModel([]),
-    new ToolRegistry(),
-  );
+  const failedModel = new ConversationOrchestrator(new ScriptedModel([]), new ToolRegistry());
   const throwingTool: Tool = {
     definition: { name: "throw", description: "Throws.", parameters: {} },
     async execute() {
@@ -176,11 +169,7 @@ test("enforces the configured tool iteration limit", async () => {
     { items: [createToolCall("1", "loop", {})] },
     { items: [createToolCall("2", "loop", {})] },
   ]);
-  const orchestrator = new ConversationOrchestrator(
-    model,
-    new ToolRegistry([capability]),
-    2,
-  );
+  const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([capability]), 2);
 
   const result = await orchestrator.run("system prompt", [], "hello");
 

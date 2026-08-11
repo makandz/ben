@@ -72,7 +72,11 @@ export class ConversationSummaryStore {
   private async writeSummaries(conversations: readonly ConversationSummary[]): Promise<void> {
     const tempPath = `${this.filePath}.tmp`;
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeFile(tempPath, `${JSON.stringify({ version: 1, conversations }, null, 2)}\n`, "utf8");
+    await writeFile(
+      tempPath,
+      `${JSON.stringify({ version: 1, conversations }, null, 2)}\n`,
+      "utf8",
+    );
     await rename(tempPath, this.filePath);
   }
 }

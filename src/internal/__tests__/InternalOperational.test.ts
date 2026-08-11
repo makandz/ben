@@ -15,23 +15,34 @@ const quietLogger = { debug() {}, info() {}, warn() {} };
 const status = { emoji: "🌙", text: "pondering the moon" };
 
 test("runs status generation through the shared model boundary", async () => {
-  const model = new ScriptedModel([{
-    items: [{ type: "message", role: "assistant", text: JSON.stringify(status) }],
-    reasoningSummary: "**A quiet status fits.**",
-  }]);
+  const model = new ScriptedModel([
+    {
+      items: [{ type: "message", role: "assistant", text: JSON.stringify(status) }],
+      reasoningSummary: "**A quiet status fits.**",
+    },
+  ]);
   const runner = new InternalActionRunner(model, quietLogger, false);
   const result = await runner.runStatusAction();
-  assert.deepEqual(result, { type: "status", status, reasoningSummary: "**A quiet status fits.**" });
+  assert.deepEqual(result, {
+    type: "status",
+    status,
+    reasoningSummary: "**A quiet status fits.**",
+  });
   assert.deepEqual(model.requests[0]?.tools, []);
 });
 
 test("converts shared model budget errors into a controlled internal result", async () => {
   const model = {
-    async invoke(): Promise<never> { throw new ModelBudgetExceededError("260810", 1, 1); },
+    async invoke(): Promise<never> {
+      throw new ModelBudgetExceededError("260810", 1, 1);
+    },
   };
   const result = await new InternalActionRunner(model, quietLogger, false).runStatusAction();
   assert.deepEqual(result, {
-    type: "budget_exceeded", day: "260810", costUsd: 1, budgetUsd: 1,
+    type: "budget_exceeded",
+    day: "260810",
+    costUsd: 1,
+    budgetUsd: 1,
   });
 });
 
@@ -48,13 +59,22 @@ test("round-trips compatible internal state and reuses a fresh saved status", as
     setAt: "2026-01-02T03:04:05.000Z",
   });
   await store.writeCurrentStatus(status, now);
-  assert.deepEqual(await store.readCurrentStatus(), { action: "status", status, setAt: now.toISOString() });
+  assert.deepEqual(await store.readCurrentStatus(), {
+    action: "status",
+    status,
+    setAt: now.toISOString(),
+  });
   assert.match(await readFile(filePath, "utf8"), /"action": "status"/);
 
   let runs = 0;
   const presences: ActivityPresence[] = [];
   const scheduler = new InternalActionScheduler(
-    { async runStatusAction() { runs += 1; return { type: "status", status }; } },
+    {
+      async runStatusAction() {
+        runs += 1;
+        return { type: "status", status };
+      },
+    },
     store,
     { setPresence: (presence) => presences.push(presence) },
     { async logStatus() {} },
@@ -79,11 +99,20 @@ test("refreshes stale state once, persists presence, and contains logging failur
       },
     },
     {
-      async readCurrentStatus() { return undefined; },
-      async writeCurrentStatus(value) { writes.push(value); return { action: "status", status: value, setAt: "now" }; },
+      async readCurrentStatus() {
+        return undefined;
+      },
+      async writeCurrentStatus(value) {
+        writes.push(value);
+        return { action: "status", status: value, setAt: "now" };
+      },
     },
     { setPresence: (presence) => presences.push(presence) },
-    { async logStatus() { throw new Error("log unavailable"); } },
+    {
+      async logStatus() {
+        throw new Error("log unavailable");
+      },
+    },
     quietLogger,
     { intervalMs: 60_000 },
   );
@@ -99,10 +128,19 @@ test("contains action failures without changing presence or state", async () => 
   let writes = 0;
   const presences: ActivityPresence[] = [];
   const scheduler = new InternalActionScheduler(
-    { async runStatusAction() { return { type: "failed", error: new Error("provider") } as const; } },
     {
-      async readCurrentStatus() { return undefined; },
-      async writeCurrentStatus() { writes += 1; throw new Error("unexpected"); },
+      async runStatusAction() {
+        return { type: "failed", error: new Error("provider") } as const;
+      },
+    },
+    {
+      async readCurrentStatus() {
+        return undefined;
+      },
+      async writeCurrentStatus() {
+        writes += 1;
+        throw new Error("unexpected");
+      },
     },
     { setPresence: (presence) => presences.push(presence) },
     { async logStatus() {} },

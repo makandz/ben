@@ -1,4 +1,9 @@
-import type { DiscordChannel, DiscordGateway, DiscordMember, DiscordUser } from "./DiscordGateway.js";
+import type {
+  DiscordChannel,
+  DiscordGateway,
+  DiscordMember,
+  DiscordUser,
+} from "./DiscordGateway.js";
 
 const discordUserMentionPattern = /<@!?(\d+)>/g;
 const discordChannelMentionPattern = /<#(\d+)>/g;
@@ -51,7 +56,9 @@ export class UserMentionDirectory {
    */
   convertUsernamesToMentions(content: string): string {
     let converted = content;
-    const usernames = [...this.usernameToId.keys()].sort((left, right) => right.length - left.length);
+    const usernames = [...this.usernameToId.keys()].sort(
+      (left, right) => right.length - left.length,
+    );
     for (const username of usernames) {
       const userId = this.usernameToId.get(username);
       if (userId !== undefined) {
@@ -159,7 +166,8 @@ export function findMatchingMember(
 ): DiscordMember | undefined {
   const normalized = normalize(username.replace(/^@+/, ""));
   const exact = members.filter(
-    (member) => normalize(member.username) === normalized || normalize(member.displayName) === normalized,
+    (member) =>
+      normalize(member.username) === normalized || normalize(member.displayName) === normalized,
   );
   if (exact.length === 1) return exact[0];
   return exact.length === 0 && members.length === 1 ? members[0] : undefined;
@@ -177,7 +185,9 @@ export function findMatchingChannel(
   channels: readonly DiscordChannel[],
 ): DiscordChannel | undefined {
   const normalized = normalize(name.replace(/^#+/, "").trim());
-  const matches = channels.filter((channel) => channel.name !== undefined && normalize(channel.name) === normalized);
+  const matches = channels.filter(
+    (channel) => channel.name !== undefined && normalize(channel.name) === normalized,
+  );
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -200,12 +210,16 @@ export async function resolveUnknownMentions(
 ): Promise<void> {
   if (channel.guildId === undefined) return;
   for (const username of users.findUnresolvedUsernames(content)) {
-    const member = findMatchingMember(username, await gateway.searchGuildMembers(channel.guildId, username));
+    const member = findMatchingMember(
+      username,
+      await gateway.searchGuildMembers(channel.guildId, username),
+    );
     if (member !== undefined) users.rememberUser(member);
   }
-  const guildChannels = channels.findUnresolvedNames(content).length === 0
-    ? []
-    : await gateway.fetchGuildChannels(channel.guildId);
+  const guildChannels =
+    channels.findUnresolvedNames(content).length === 0
+      ? []
+      : await gateway.fetchGuildChannels(channel.guildId);
   for (const name of channels.findUnresolvedNames(content)) {
     const match = findMatchingChannel(name, guildChannels);
     if (match !== undefined) channels.rememberChannel(match);

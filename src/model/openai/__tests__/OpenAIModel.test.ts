@@ -36,13 +36,15 @@ test("makes one configured request, maps its turn, and records usage", async (co
     model: "gpt-5.6-luna",
     instructions: "Be Ben.",
     input: [{ type: "message", role: "user", content: "hello" }],
-    tools: [{
-      type: "function",
-      name: "finish",
-      description: "Finishes.",
-      parameters: { type: "object" },
-      strict: true,
-    }],
+    tools: [
+      {
+        type: "function",
+        name: "finish",
+        description: "Finishes.",
+        parameters: { type: "object" },
+        strict: true,
+      },
+    ],
     tool_choice: "required",
     parallel_tool_calls: false,
     max_output_tokens: 512,
@@ -88,13 +90,15 @@ test("supports internal model requests without forcing a tool call", async (cont
     async create(params): Promise<Response> {
       request = params;
       return {
-        output: [{
-          id: "message-1",
-          type: "message",
-          role: "assistant",
-          status: "completed",
-          content: [{ type: "output_text", text: "status", annotations: [] }],
-        }],
+        output: [
+          {
+            id: "message-1",
+            type: "message",
+            role: "assistant",
+            status: "completed",
+            content: [{ type: "output_text", text: "status", annotations: [] }],
+          },
+        ],
       } as unknown as Response;
     },
   });
@@ -112,14 +116,16 @@ test("supports internal model requests without forcing a tool call", async (cont
 
 function createResponse(): Response {
   return {
-    output: [{
-      id: "function-1",
-      type: "function_call",
-      call_id: "call-1",
-      name: "finish",
-      arguments: "{}",
-      status: "completed",
-    }],
+    output: [
+      {
+        id: "function-1",
+        type: "function_call",
+        call_id: "call-1",
+        name: "finish",
+        arguments: "{}",
+        status: "completed",
+      },
+    ],
     usage: {
       input_tokens: 100,
       input_tokens_details: { cached_tokens: 20, cache_write_tokens: 0 },

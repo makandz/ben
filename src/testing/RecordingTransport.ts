@@ -59,10 +59,7 @@ export class RecordingTransport implements ChatTransport {
    * @param details - Optional structured status details.
    * @returns A promise that resolves after recording.
    */
-  async logStatus(
-    message: string,
-    details?: Readonly<Record<string, unknown>>,
-  ): Promise<void> {
+  async logStatus(message: string, details?: Readonly<Record<string, unknown>>): Promise<void> {
     this.statuses.push({ message, details });
   }
 }

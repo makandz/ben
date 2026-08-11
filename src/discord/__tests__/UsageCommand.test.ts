@@ -28,12 +28,25 @@ test("registers and handles usage through normalized Discord boundaries", async 
   const events: string[] = [];
   const replies: unknown[] = [];
   await registerUsageCommand(
-    { async registerCommand(command) { events.push(command.name); return "updated"; } },
+    {
+      async registerCommand(command) {
+        events.push(command.name);
+        return "updated";
+      },
+    },
     { info: (event) => events.push(event) },
   );
   await handleUsageCommand(
-    { async reply(content) { replies.push(content); } },
-    { async getTodaySummary() { return summary; } },
+    {
+      async reply(content) {
+        replies.push(content);
+      },
+    },
+    {
+      async getTodaySummary() {
+        return summary;
+      },
+    },
     { warn() {} },
   );
   assert.deepEqual(events, ["usage", "discord.command_updated"]);
@@ -43,8 +56,16 @@ test("registers and handles usage through normalized Discord boundaries", async 
 test("returns an ephemeral controlled failure when usage cannot be read", async () => {
   const replies: unknown[] = [];
   await handleUsageCommand(
-    { async reply(content) { replies.push(content); } },
-    { async getTodaySummary(): Promise<never> { throw new Error("disk"); } },
+    {
+      async reply(content) {
+        replies.push(content);
+      },
+    },
+    {
+      async getTodaySummary(): Promise<never> {
+        throw new Error("disk");
+      },
+    },
     { warn() {} },
   );
   assert.deepEqual(replies, [{ content: "Could not read usage right now.", ephemeral: true }]);

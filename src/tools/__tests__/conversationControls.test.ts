@@ -13,9 +13,7 @@ function createToolCall(argumentsValue: unknown) {
 }
 
 test("reply supports text with an optional reaction", async () => {
-  const result = await replyTool.execute(
-    createToolCall({ text: " hi ", reaction: "🙂" }),
-  );
+  const result = await replyTool.execute(createToolCall({ text: " hi ", reaction: "🙂" }));
 
   assert.deepEqual(result, {
     type: "finish",
@@ -25,9 +23,7 @@ test("reply supports text with an optional reaction", async () => {
 });
 
 test("reply supports a reaction without text", async () => {
-  const result = await replyTool.execute(
-    createToolCall({ text: null, reaction: "👍" }),
-  );
+  const result = await replyTool.execute(createToolCall({ text: null, reaction: "👍" }));
 
   assert.equal(result.type, "finish");
 
@@ -38,12 +34,8 @@ test("reply supports a reaction without text", async () => {
 
 test("reply rejects malformed, empty, and invalid reaction arguments", async () => {
   const malformed = await replyTool.execute(createToolCall("not an object"));
-  const empty = await replyTool.execute(
-    createToolCall({ text: null, reaction: null }),
-  );
-  const invalidReaction = await replyTool.execute(
-    createToolCall({ text: null, reaction: "no" }),
-  );
+  const empty = await replyTool.execute(createToolCall({ text: null, reaction: null }));
+  const invalidReaction = await replyTool.execute(createToolCall({ text: null, reaction: "no" }));
 
   assert.equal(malformed.type, "continue");
   assert.equal(empty.type, "continue");

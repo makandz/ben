@@ -60,8 +60,9 @@ export function calculateCostUsd(usage: BillableUsage, pricing: ModelPricing): n
   const uncached = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
 
   return (
-    uncached * pricing.inputUsdPer1M +
-    usage.cachedInputTokens * pricing.cachedInputUsdPer1M +
-    usage.outputTokens * pricing.outputUsdPer1M
-  ) / 1_000_000;
+    (uncached * pricing.inputUsdPer1M +
+      usage.cachedInputTokens * pricing.cachedInputUsdPer1M +
+      usage.outputTokens * pricing.outputUsdPer1M) /
+    1_000_000
+  );
 }

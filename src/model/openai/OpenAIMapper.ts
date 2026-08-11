@@ -64,20 +64,24 @@ export class OpenAIMapper {
     }
 
     if (item.type === "tool_call") {
-      return [{
-        type: "function_call",
-        call_id: item.callId,
-        name: item.name,
-        arguments: stringifyJson(item.arguments),
-      }];
+      return [
+        {
+          type: "function_call",
+          call_id: item.callId,
+          name: item.name,
+          arguments: stringifyJson(item.arguments),
+        },
+      ];
     }
 
     if (item.type === "tool_result") {
-      return [{
-        type: "function_call_output",
-        call_id: item.callId,
-        output: stringifyJson(item.result),
-      }];
+      return [
+        {
+          type: "function_call_output",
+          call_id: item.callId,
+          output: stringifyJson(item.result),
+        },
+      ];
     }
 
     const continuation = this.reasoningContinuations.get(item);
@@ -93,7 +97,7 @@ export class OpenAIMapper {
   private toConversationItems(item: ResponseOutputItem): ConversationItem[] {
     if (item.type === "message") {
       const text = item.content
-        .map((content) => content.type === "output_text" ? content.text : content.refusal)
+        .map((content) => (content.type === "output_text" ? content.text : content.refusal))
         .join("\n")
         .trim();
 
@@ -101,12 +105,14 @@ export class OpenAIMapper {
     }
 
     if (item.type === "function_call") {
-      return [{
-        type: "tool_call",
-        callId: item.call_id,
-        name: item.name,
-        arguments: parseArguments(item.arguments),
-      }];
+      return [
+        {
+          type: "tool_call",
+          callId: item.call_id,
+          name: item.name,
+          arguments: parseArguments(item.arguments),
+        },
+      ];
     }
 
     if (item.type === "reasoning") {
@@ -162,7 +168,8 @@ function parseArguments(value: string): unknown {
 
 /** Serializes any application value into a valid JSON string. */
 function stringifyJson(value: unknown): string {
-  if (value === undefined || typeof value === "function" || typeof value === "symbol") return "null";
+  if (value === undefined || typeof value === "function" || typeof value === "symbol")
+    return "null";
   return JSON.stringify(value);
 }
 

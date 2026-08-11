@@ -15,12 +15,21 @@ test("startup delivers overdue one-time schedules and completes them", async (t)
   const store = new MemoryScheduleStore([message]);
   const delivered: ScheduledMessage[] = [];
   const logs: string[] = [];
-  const scheduler = createScheduler(store, async (value) => { delivered.push(value); }, logs);
+  const scheduler = createScheduler(
+    store,
+    async (value) => {
+      delivered.push(value);
+    },
+    logs,
+  );
   t.after(() => scheduler.stop());
 
   await scheduler.start();
 
-  assert.deepEqual(delivered.map(({ id }) => id), [message.id]);
+  assert.deepEqual(
+    delivered.map(({ id }) => id),
+    [message.id],
+  );
   assert.equal(store.messages[0]?.enabled, false);
   assert.equal(store.messages[0]?.lastRunAt, "2026-03-10T16:00:00.000Z");
   assert.match(logs[0] ?? "", /schedule complete/);
@@ -31,7 +40,13 @@ test("startup skips missed recurring occurrences and finds the first future wall
   const store = new MemoryScheduleStore([message]);
   const delivered: ScheduledMessage[] = [];
   const logs: string[] = [];
-  const scheduler = createScheduler(store, async (value) => { delivered.push(value); }, logs);
+  const scheduler = createScheduler(
+    store,
+    async (value) => {
+      delivered.push(value);
+    },
+    logs,
+  );
   t.after(() => scheduler.stop());
 
   await scheduler.start();
@@ -62,7 +77,13 @@ test("delivery failures retain due schedules and increment failure accounting", 
   });
   const store = new MemoryScheduleStore([message]);
   const logs: string[] = [];
-  const scheduler = createScheduler(store, async () => { throw new Error("Discord unavailable"); }, logs);
+  const scheduler = createScheduler(
+    store,
+    async () => {
+      throw new Error("Discord unavailable");
+    },
+    logs,
+  );
   t.after(() => scheduler.stop());
 
   await scheduler.start();
@@ -81,7 +102,9 @@ function createScheduler(
   return new ScheduledMessageScheduler(
     store,
     deliver,
-    async (text) => { logs.push(text); },
+    async (text) => {
+      logs.push(text);
+    },
     quietLogger,
     {
       intervalMs: 60_000,
@@ -91,9 +114,7 @@ function createScheduler(
   );
 }
 
-function scheduledMessage(
-  overrides: Partial<ScheduledMessage> = {},
-): ScheduledMessage {
+function scheduledMessage(overrides: Partial<ScheduledMessage> = {}): ScheduledMessage {
   return {
     id: "sm_test",
     channelId: "general",

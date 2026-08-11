@@ -68,22 +68,11 @@ export type DiscordGateway = {
   destroy(): Promise<void>;
   getBotUser(): DiscordUser | undefined;
   fetchChannel(channelId: string): Promise<DiscordChannel | undefined>;
-  searchGuildMembers(
-    guildId: string,
-    query: string,
-  ): Promise<readonly DiscordMember[]>;
+  searchGuildMembers(guildId: string, query: string): Promise<readonly DiscordMember[]>;
   fetchGuildChannels(guildId: string): Promise<readonly DiscordChannel[]>;
-  sendMessage(
-    channelId: string,
-    content: string,
-    options: DiscordSendOptions,
-  ): Promise<void>;
+  sendMessage(channelId: string, content: string, options: DiscordSendOptions): Promise<void>;
   sendTyping(channelId: string): Promise<void>;
-  addReaction(
-    channelId: string,
-    messageId: string,
-    emoji: string,
-  ): Promise<void>;
+  addReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
   setPresence(status: "idle" | "online", activity?: string): void;
   registerCommand(command: DiscordCommandDefinition): Promise<"registered" | "updated">;
 };

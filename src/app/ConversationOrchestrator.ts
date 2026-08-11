@@ -70,9 +70,13 @@ export class ConversationOrchestrator {
         }
 
         const tool = this.tools.get(call.name);
-        const execution = tool === undefined
-          ? { type: "continue" as const, result: { ok: false, error: `unknown tool: ${call.name}` } }
-          : await tool.execute(call);
+        const execution =
+          tool === undefined
+            ? {
+                type: "continue" as const,
+                result: { ok: false, error: `unknown tool: ${call.name}` },
+              }
+            : await tool.execute(call);
 
         memory.push({ type: "tool_result", callId: call.callId, result: execution.result });
 

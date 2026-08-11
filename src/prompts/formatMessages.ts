@@ -125,8 +125,6 @@ function formatKnownPeople(knownPeople: KnownPeople): string {
 }
 
 /** Formats saved conversation summaries as a list. */
-function formatConversationSummaries(
-  conversations: readonly ConversationSummary[],
-): string {
+function formatConversationSummaries(conversations: readonly ConversationSummary[]): string {
   return conversations.map((conversation) => `- ${conversation.summary}`).join("\n");
 }

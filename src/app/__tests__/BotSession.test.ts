@@ -29,7 +29,9 @@ type OrchestratorCall = {
 class ScriptedOrchestrator {
   readonly calls: OrchestratorCall[] = [];
 
-  constructor(private readonly outcomes: Array<ConversationOutcome | Promise<ConversationOutcome>>) {}
+  constructor(
+    private readonly outcomes: Array<ConversationOutcome | Promise<ConversationOutcome>>,
+  ) {}
 
   async run(
     instructions: string,
@@ -51,11 +53,7 @@ class RecordingPresence {
   }
 }
 
-function message(
-  id: string,
-  channelId = "channel-a",
-  username = "Makan",
-): HumanMessage {
+function message(id: string, channelId = "channel-a", username = "Makan"): HumanMessage {
   return {
     id,
     channelId,
@@ -185,7 +183,10 @@ test("queues pinged channels FIFO and promotes each only after sleep", async (t)
   assert.match(orchestrator.calls[0]?.userText ?? "", /a-ping/);
   assert.match(orchestrator.calls[1]?.userText ?? "", /b-ping b-more/);
   assert.match(orchestrator.calls[2]?.userText ?? "", /c-ping/);
-  assert.deepEqual(orchestrator.calls.map((call) => call.history), [[], [], []]);
+  assert.deepEqual(
+    orchestrator.calls.map((call) => call.history),
+    [[], [], []],
+  );
   assert.deepEqual(transport.messages, [{ channelId: "channel-c", text: "c active" }]);
 });
 
@@ -215,12 +216,18 @@ test("applies reply, react, wait, and sleep outcomes through the transports", as
   session.handleMessage(message("four"), false);
   await until(() => transport.messages.length === 2 && presence.values.at(-1)?.status === "idle");
 
-  assert.deepEqual(transport.messages.map(({ text }) => text), ["hello", "later"]);
-  assert.deepEqual(transport.reactions.map(({ messageId, emoji }) => ({ messageId, emoji })), [
-    { messageId: "one", emoji: "👋" },
-    { messageId: "two", emoji: "👍" },
-    { messageId: "four", emoji: "😴" },
-  ]);
+  assert.deepEqual(
+    transport.messages.map(({ text }) => text),
+    ["hello", "later"],
+  );
+  assert.deepEqual(
+    transport.reactions.map(({ messageId, emoji }) => ({ messageId, emoji })),
+    [
+      { messageId: "one", emoji: "👋" },
+      { messageId: "two", emoji: "👍" },
+      { messageId: "four", emoji: "😴" },
+    ],
+  );
   assert.ok(transport.statuses.some(({ message }) => message === "Model reasoning"));
   assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
   assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));
@@ -243,14 +250,19 @@ test("idle sleep clears history before a later wake", async (t) => {
   await until(() => orchestrator.calls.length === 2);
 
   assert.deepEqual(orchestrator.calls[1]?.history, []);
-  assert.deepEqual(presence.values.map(({ status }) => status), ["online", "idle", "online"]);
+  assert.deepEqual(
+    presence.values.map(({ status }) => status),
+    ["online", "idle", "online"],
+  );
 });
 
 test("reports a reached daily budget and remains awake", async (t) => {
-  const orchestrator = new ScriptedOrchestrator([{
-    type: "failed",
-    error: new ModelBudgetExceededError("260810", 1.25, 1),
-  }]);
+  const orchestrator = new ScriptedOrchestrator([
+    {
+      type: "failed",
+      error: new ModelBudgetExceededError("260810", 1.25, 1),
+    },
+  ]);
   const { session, transport } = createSession(orchestrator);
   t.after(() => session.stop());
 
@@ -273,20 +285,20 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
   const saved: string[] = [];
   const persistence: BotSessionPersistence = {
     summaries: {
-      async list() { return [{ summary: "The group planned dinner." }]; },
-      async add(summary) { saved.push(summary); },
+      async list() {
+        return [{ summary: "The group planned dinner." }];
+      },
+      async add(summary) {
+        saved.push(summary);
+      },
     },
     knownPeople: {
-      async listForPrompt() { return { makan: { name: "Makan A." } }; },
+      async listForPrompt() {
+        return { makan: { name: "Makan A." } };
+      },
     },
   };
-  const { session } = createSession(
-    orchestrator,
-    undefined,
-    undefined,
-    fastTimings,
-    persistence,
-  );
+  const { session } = createSession(orchestrator, undefined, undefined, fastTimings, persistence);
   t.after(() => session.stop());
 
   session.handleMessage(message("ping"), true);

@@ -64,10 +64,7 @@ test("rejects a nonexistent daylight-saving wall time", () => {
 });
 
 test("formats bot-local prompt time", () => {
-  const formatted = formatBotTime(
-    new Date("2026-08-10T16:30:00.000Z"),
-    "America/Toronto",
-  );
+  const formatted = formatBotTime(new Date("2026-08-10T16:30:00.000Z"), "America/Toronto");
 
   assert.match(formatted, /Monday, August 10, 2026/);
   assert.match(formatted, /12:30 PM/);

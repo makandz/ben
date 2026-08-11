@@ -46,11 +46,7 @@ function readOptionalValue(source: NodeJS.ProcessEnv, name: string): string | un
 }
 
 /** Reads a finite, non-negative numeric environment value. */
-function readNonNegativeNumber(
-  source: NodeJS.ProcessEnv,
-  name: string,
-  fallback: number,
-): number {
+function readNonNegativeNumber(source: NodeJS.ProcessEnv, name: string, fallback: number): number {
   const value = readOptionalValue(source, name);
 
   if (value === undefined) {

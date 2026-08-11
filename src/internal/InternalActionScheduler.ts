@@ -32,7 +32,10 @@ export class InternalActionScheduler {
    */
   constructor(
     private readonly runner: Pick<InternalActionRunner, "runStatusAction">,
-    private readonly stateStore: Pick<InternalStateStore, "readCurrentStatus" | "writeCurrentStatus">,
+    private readonly stateStore: Pick<
+      InternalStateStore,
+      "readCurrentStatus" | "writeCurrentStatus"
+    >,
     private readonly presence: PresenceTransport,
     private readonly transport: Pick<ChatTransport, "logStatus">,
     private readonly logger: Pick<Logger, "debug" | "info" | "warn">,
@@ -55,7 +58,11 @@ export class InternalActionScheduler {
     if (saved !== undefined && isFreshStatusState(saved, this.intervalMs, now)) {
       this.applyStatus(saved.status);
       delay = Math.max(this.intervalMs - (now.getTime() - Date.parse(saved.setAt)), 0);
-      this.logger.info("internal.status_reused", { setAt: saved.setAt, nextDelayMs: delay, ...saved.status });
+      this.logger.info("internal.status_reused", {
+        setAt: saved.setAt,
+        nextDelayMs: delay,
+        ...saved.status,
+      });
     } else {
       await this.runStatusAction("startup");
     }
@@ -84,7 +91,9 @@ export class InternalActionScheduler {
     this.availability = awake ? "online" : "idle";
     this.presence.setPresence({
       status: this.availability,
-      ...(this.currentStatus === undefined ? {} : { activity: formatActivityStatus(this.currentStatus) }),
+      ...(this.currentStatus === undefined
+        ? {}
+        : { activity: formatActivityStatus(this.currentStatus) }),
     });
   }
 
@@ -144,7 +153,10 @@ export class InternalActionScheduler {
 
   private applyStatus(status: InternalStatus): void {
     this.currentStatus = status;
-    this.presence.setPresence({ status: this.availability, activity: formatActivityStatus(status) });
+    this.presence.setPresence({
+      status: this.availability,
+      activity: formatActivityStatus(status),
+    });
   }
 
   private async writeLog(text: string): Promise<void> {
@@ -159,5 +171,8 @@ function sameStatus(left: InternalStatus | undefined, right: InternalStatus): bo
 }
 
 function stripBoldMarkdown(text: string): string {
-  return text.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").trim();
+  return text
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .trim();
 }
