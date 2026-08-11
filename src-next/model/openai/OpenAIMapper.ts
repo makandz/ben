@@ -162,7 +162,8 @@ function parseArguments(value: string): unknown {
 
 /** Serializes any application value into a valid JSON string. */
 function stringifyJson(value: unknown): string {
-  return JSON.stringify(value) ?? "null";
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") return "null";
+  return JSON.stringify(value);
 }
 
 /** Extracts portable text from one reasoning item. */

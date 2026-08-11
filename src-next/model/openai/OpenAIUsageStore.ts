@@ -38,7 +38,7 @@ type UsageLogger = {
   warn(event: string, data?: Record<string, unknown>): void;
 };
 
-const silentLogger: UsageLogger = { warn() {} };
+const silentLogger: UsageLogger = { warn: () => undefined };
 
 /** Persists compatible monthly OpenAI usage totals using atomic file replacement. */
 export class OpenAIUsageStore {

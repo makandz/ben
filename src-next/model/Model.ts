@@ -39,6 +39,6 @@ export class ModelBudgetExceededError extends Error {
     readonly costUsd: number,
     readonly budgetUsd: number,
   ) {
-    super(`Daily model budget reached (${costUsd} / ${budgetUsd}) on ${day}`);
+    super(`Daily model budget reached (${String(costUsd)} / ${String(budgetUsd)}) on ${day}`);
   }
 }

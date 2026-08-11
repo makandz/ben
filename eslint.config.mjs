@@ -15,7 +15,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "src-next/**/*.ts"],
     extends: [
       js.configs.recommended,
       ...tseslint.configs.strictTypeChecked,
@@ -25,7 +25,7 @@ export default tseslint.config(
       ecmaVersion: 2022,
       globals: globals.node,
       parserOptions: {
-        projectService: true,
+        project: ["./tsconfig.json", "./tsconfig.next.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -37,6 +37,27 @@ export default tseslint.config(
           checksVoidReturn: false,
         },
       ],
+    },
+  },
+  {
+    files: ["src-next/**/*.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-definitions": ["error", "type"],
+      "@typescript-eslint/require-await": "off",
+      "prefer-const": "off",
+    },
+  },
+  {
+    files: ["src-next/**/*.test.ts", "src-next/testing/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-empty-function": "off",
+      "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/no-unnecessary-condition": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/only-throw-error": "off",
+      "@typescript-eslint/array-type": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     },
   },
 );

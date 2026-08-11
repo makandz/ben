@@ -56,7 +56,10 @@ export class DiscordAdapter {
       },
       message: (message) => this.handleMessage(message),
       typing: (event) => this.handleTyping(event),
-      command: (event) => handlers.handleCommand?.(event.name, event.reply),
+      command: (event) => handlers.handleCommand?.(
+        event.name,
+        (content) => event.reply(content),
+      ),
       error: (error) => logger.error("discord.error", { error: String(error) }),
     });
   }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -39,8 +39,14 @@ test("round-trips compatible internal state and reuses a fresh saved status", as
   const directory = await mkdtemp(path.join(os.tmpdir(), "ben-internal-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = path.join(directory, "state.json");
+  await copyFile("src-next/testing/fixtures/internal-state.json", filePath);
   const store = new InternalStateStore(filePath, quietLogger);
   const now = new Date("2026-08-10T12:00:00.000Z");
+  assert.deepEqual(await store.readCurrentStatus(), {
+    action: "status",
+    status,
+    setAt: "2026-01-02T03:04:05.000Z",
+  });
   await store.writeCurrentStatus(status, now);
   assert.deepEqual(await store.readCurrentStatus(), { action: "status", status, setAt: now.toISOString() });
   assert.match(await readFile(filePath, "utf8"), /"action": "status"/);

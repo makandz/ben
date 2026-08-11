@@ -86,7 +86,7 @@ export class DiscordJsGateway implements DiscordGateway {
    * @returns A promise that resolves after the client is destroyed.
    */
   async destroy(): Promise<void> {
-    this.client.destroy();
+    await this.client.destroy();
   }
 
   /**

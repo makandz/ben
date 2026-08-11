@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 8 — completed; Phase 9 not started
+- Current phase: Phase 9 — completed; Phase 10 requires explicit approval
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–8 only)
+- Replacement implementation: `src-next` (Phases 1–9)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -256,28 +256,28 @@ check.
 - [x] Detect direct pings and register/handle `/usage`.
 - [x] Send messages, reactions, typing, status logs, and presence safely.
 - [x] Resolve user/channel mentions and escape `@everyone`/`@here`.
-- [ ] Restrict allowed mentions and reject missing or ambiguous lookups.
+- [x] Restrict allowed mentions and reject missing or ambiguous lookups.
 
 ### Session and context
 
-- [ ] Start sleeping and keep bounded recent context by channel.
-- [ ] Wake on ping, keep one active channel, and queue other channels FIFO.
-- [ ] Batch messages, respect typing activity, and refresh Ben's typing indicator.
-- [ ] Queue messages received during processing and promote them afterward.
-- [ ] Wait while preserving memory; sleep while clearing memory and advancing queued wakes.
-- [ ] Return to sleep after idle timeout and update awake/idle presence.
-- [ ] Include pre-wake context, pinging user, summaries, known people, local time, and activity status.
+- [x] Start sleeping and keep bounded recent context by channel.
+- [x] Wake on ping, keep one active channel, and queue other channels FIFO.
+- [x] Batch messages, respect typing activity, and refresh Ben's typing indicator.
+- [x] Queue messages received during processing and promote them afterward.
+- [x] Wait while preserving memory; sleep while clearing memory and advancing queued wakes.
+- [x] Return to sleep after idle timeout and update awake/idle presence.
+- [x] Include pre-wake context, pinging user, summaries, known people, local time, and activity status.
 - [x] Preserve model history while awake and save a required summary on sleep.
 
 ### Model and orchestration
 
-- [ ] Perform one provider request per model invocation with provider-neutral tools/history.
-- [ ] Execute capability tools and return results to the model.
-- [ ] Support reply, reaction, combined reply/reaction, wait, and sleep.
-- [ ] Enforce the tool-call policy and bounded iteration count.
-- [ ] Surface public reasoning summaries when available.
-- [ ] Convert model/tool failures into controlled outcomes.
-- [ ] Enforce the daily budget across conversation and internal model calls.
+- [x] Perform one provider request per model invocation with provider-neutral tools/history.
+- [x] Execute capability tools and return results to the model.
+- [x] Support reply, reaction, combined reply/reaction, wait, and sleep.
+- [x] Enforce the tool-call policy and bounded iteration count.
+- [x] Surface public reasoning summaries when available.
+- [x] Convert model/tool failures into controlled outcomes.
+- [x] Enforce the daily budget across conversation and internal model calls.
 
 ### Tools
 
@@ -565,14 +565,36 @@ logic.
 
 ### Phase 9 — Parity and cutover readiness
 
-Status: Not started
+Status: Complete
 
-- [ ] Resolve or explicitly accept every parity checklist item.
-- [ ] Run replacement type-check, lint, and tests.
-- [ ] Verify persisted-data compatibility using fixtures or copies, never concurrent live writes.
-- [ ] Search for prohibited cross-boundary SDK imports and `src-next` imports from `src`.
-- [ ] Confirm reduced environment documentation and local constants.
-- [ ] Document intentional behavior changes and prepare the cutover/rollback commits.
+- [x] Resolve or explicitly accept every parity checklist item.
+- [x] Run replacement type-check, lint, and tests.
+- [x] Verify persisted-data compatibility using fixtures or copies, never concurrent live writes.
+- [x] Search for prohibited cross-boundary SDK imports and `src-next` imports from `src`.
+- [x] Confirm reduced environment documentation and local constants.
+- [x] Document intentional behavior changes and prepare the cutover/rollback commits.
+
+Completed on 2026-08-10:
+
+- Every parity checklist item is backed by the 89-test replacement suite and the phase completion
+  evidence above. No missing behavior was accepted without coverage.
+- Replacement type-check and tests pass. ESLint now includes both `src` and `src-next`, uses both
+  TypeScript projects, and passes; the production build also passes.
+- All five compatibility fixtures are exercised through copies in temporary directories: summaries,
+  known people, scheduled messages, OpenAI usage, and internal status. Tests never read or write
+  deployment `logs` data.
+- Static boundary searches found no `src-next` import from `src`. `discord.js` is imported only by
+  `discord/DiscordJsGateway.ts`; OpenAI SDK types and values are imported only under `model/openai`.
+- `.env.example` and the Configuration table now contain only the six-variable replacement contract.
+  Model names, output/tool limits, session/schedule/internal intervals, timezone, context bounds, and
+  storage paths are local constants beside their owners.
+- Intentional cutover changes are limited to the already-approved reduced environment contract and
+  local constants; extra legacy environment variables may remain during rollback but the replacement
+  ignores them. No user-facing behavior difference was accepted during the parity review.
+- Phase 10 is prepared as two reviewable commits after explicit approval: first record the known-good
+  pre-cutover revision and replace `src`/scripts/configuration without starting a process; then remove
+  temporary migration files and update the README only after live verification. Rollback stops the
+  replacement and reverts the cutover commit to the recorded revision while preserving `logs` data.
 
 Done when the replacement is accepted as the only implementation before any live process changes.
 
@@ -620,10 +642,7 @@ Done when one verified `src` remains and all normal scripts target it.
 
 ## Open questions
 
-- Copied prompts in `src-next`, or neutral root-level prompt assets?
-- Which existing-toolchain command provides the cleanest TypeScript tests and timer control?
-
-Resolve questions only when their phase needs an answer, then move the result into Decisions.
+None. Prompt ownership and the TypeScript test command are recorded under Decisions.
 
 ## Definition of done
 
