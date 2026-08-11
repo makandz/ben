@@ -1,69 +1,67 @@
-import type { ChatInputCommandInteraction, Client } from "discord.js";
-
 import type { Logger } from "../logger.js";
-import type { OpenAIUsageStore, UsageSummary } from "../openai/usageStore.js";
+import type { OpenAIUsageStore, UsageSummary } from "../model/openai/OpenAIUsageStore.js";
+import { formatUsd } from "../util/formatCurrency.js";
+import type { DiscordCommandEvent, DiscordGateway } from "./DiscordGateway.js";
 
-const usageCommand = {
+export const usageCommand = {
   name: "usage",
   description: "Show today's OpenAI token usage and estimated cost.",
-};
+} as const;
 
+/**
+ * Registers or refreshes the global usage command.
+ *
+ * @param gateway - Discord command-registration boundary.
+ * @param logger - Logger for the resulting registration action.
+ * @returns A promise that resolves after Discord accepts the command.
+ */
 export async function registerUsageCommand(
-  client: Client,
-  logger: Logger,
+  gateway: Pick<DiscordGateway, "registerCommand">,
+  logger: Pick<Logger, "info">,
 ): Promise<void> {
-  const commands = await client.application?.commands.fetch();
-  const existing = commands?.find((command) => command.name === usageCommand.name);
-
-  if (existing === undefined) {
-    await client.application?.commands.create(usageCommand);
-    logger.info("discord.command_registered", {
-      command: usageCommand.name,
-      scope: "global",
-    });
-    return;
-  }
-
-  await existing.edit(usageCommand);
-  logger.info("discord.command_updated", {
-    command: usageCommand.name,
-    scope: "global",
-  });
+  const action = await gateway.registerCommand(usageCommand);
+  logger.info(`discord.command_${action}`, { command: usageCommand.name, scope: "global" });
 }
 
+/**
+ * Replies to one normalized usage command without exposing Discord SDK types.
+ *
+ * @param interaction - Normalized reply capability.
+ * @param usageStore - Daily usage summary source.
+ * @param logger - Logger for contained read failures.
+ * @returns A promise that resolves after the interaction reply.
+ */
 export async function handleUsageCommand(
-  interaction: ChatInputCommandInteraction,
-  usageStore: OpenAIUsageStore,
-  logger: Logger,
+  interaction: Pick<DiscordCommandEvent, "reply">,
+  usageStore: Pick<OpenAIUsageStore, "getTodaySummary">,
+  logger: Pick<Logger, "warn">,
 ): Promise<void> {
   try {
-    const summary = await usageStore.getTodaySummary();
-    await interaction.reply(formatUsageSummary(summary));
+    await interaction.reply(formatUsageSummary(await usageStore.getTodaySummary()));
   } catch (error) {
     logger.warn("discord.usage_command_failed", { error: String(error) });
-    await interaction.reply({
-      content: "Could not read usage right now.",
-      ephemeral: true,
-    });
+    await interaction.reply({ content: "Could not read usage right now.", ephemeral: true });
   }
 }
 
-function formatUsageSummary(summary: UsageSummary): string {
+/**
+ * Formats the production-compatible compact daily usage line.
+ *
+ * @param summary - Aggregated daily token, cost, model, and budget values.
+ * @returns Compact user-facing usage text.
+ */
+export function formatUsageSummary(summary: UsageSummary): string {
   return `${formatInteger(summary.inputTokens)}/${formatInteger(summary.cachedInputTokens)}/${formatInteger(summary.outputTokens)} (input/cached/output) - ${formatUsd(summary.costUsd)} (${formatUsagePercent(summary)}) - ${summary.model}`;
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
-}
-
+/** Formats an integer with locale-appropriate grouping separators. */
 function formatInteger(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/** Formats the share of the daily budget consumed, or `n/a` when budgeting is disabled. */
 function formatUsagePercent(summary: UsageSummary): string {
-  if (summary.budgetUsd <= 0) {
-    return "n/a";
-  }
-
-  return `${((summary.costUsd / summary.budgetUsd) * 100).toFixed(1)}%`;
+  return summary.budgetUsd <= 0
+    ? "n/a"
+    : `${((summary.costUsd / summary.budgetUsd) * 100).toFixed(1)}%`;
 }

@@ -1,0 +1,13 @@
+{
+  "month": "2601",
+  "days": {
+    "260102": {
+      "requests": 2,
+      "inputTokens": 1200,
+      "cachedInputTokens": 200,
+      "outputTokens": 300,
+      "totalTokens": 1500,
+      "costUsd": 0.0123
+    }
+  }
+}
