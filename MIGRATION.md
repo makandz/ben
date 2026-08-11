@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 4 — completed; Phase 5 not started
+- Current phase: Phase 5 — completed; Phase 6 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–4 only)
+- Replacement implementation: `src-next` (Phases 1–5 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -439,13 +439,29 @@ session state.
 
 ### Phase 5 — Bot session
 
-Status: Not started
+Status: Complete
 
-- [ ] Implement wake/awake/processing/sleep state and bounded sleeping context.
-- [ ] Implement batching, typing-aware debounce, active-channel behavior, and queued wakes.
-- [ ] Invoke the orchestrator and apply outcomes through `ChatTransport`.
-- [ ] Use local production timings with narrow test overrides.
-- [ ] Test wake, timing, processing queues, channel FIFO, outcomes, idle sleep, and memory clearing.
+- [x] Implement wake/awake/processing/sleep state and bounded sleeping context.
+- [x] Implement batching, typing-aware debounce, active-channel behavior, and queued wakes.
+- [x] Invoke the orchestrator and apply outcomes through `ChatTransport`.
+- [x] Use local production timings with narrow test overrides.
+- [x] Test wake, timing, processing queues, channel FIFO, outcomes, idle sleep, and memory clearing.
+
+Completed on 2026-08-10:
+
+- `BotSession` starts asleep, retains five recent messages per channel, wakes only on a direct ping,
+  owns one active channel, and promotes pinged channels in FIFO order after model or idle sleep.
+- Message batching waits for both message debounce and tracked human typing activity. Messages that
+  arrive during model work are promoted into the next batch, and Ben's typing indicator refreshes
+  while the orchestrator is running.
+- Portable history remains available across awake turns and is cleared on sleep. Reply, reaction,
+  wait, sleep, reasoning-status, presence, and controlled-failure behavior use only application
+  contracts; persistence-backed sleep summaries remain Phase 6 work.
+- Production timings are local session constants, with a partial constructor override used by the
+  tests. `RecordingTransport` provides the reusable output fake anticipated by the test plan.
+- Seven session behavior tests bring the replacement suite to 56 passing tests. Both the production
+  build and replacement type-check pass. `pnpm lint` remains unavailable because the local `eslint`
+  binary is missing; no dependency was installed or changed.
 
 Done when session behavior runs completely with a scripted orchestrator and recording transport.
 

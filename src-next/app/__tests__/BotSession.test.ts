@@ -1,0 +1,251 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { BotSession } from "../BotSession.js";
+import type { ActivityPresence } from "../PresenceTransport.js";
+import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
+import { RecordingTransport } from "../../testing/RecordingTransport.js";
+
+const quietLogger = {
+  debug() {},
+  info() {},
+  warn() {},
+};
+
+const fastTimings = {
+  messageDebounceMs: 5,
+  typingDebounceMs: 30,
+  idleSleepMs: 80,
+  typingRefreshMs: 10,
+};
+
+type OrchestratorCall = {
+  instructions: string;
+  history: readonly ConversationItem[];
+  userText: string;
+};
+
+class ScriptedOrchestrator {
+  readonly calls: OrchestratorCall[] = [];
+
+  constructor(private readonly outcomes: Array<ConversationOutcome | Promise<ConversationOutcome>>) {}
+
+  async run(
+    instructions: string,
+    history: readonly ConversationItem[],
+    userText: string,
+  ): Promise<ConversationOutcome> {
+    this.calls.push({ instructions, history: [...history], userText });
+    const outcome = this.outcomes.shift();
+    if (outcome === undefined) throw new Error("No scripted outcome remains");
+    return outcome;
+  }
+}
+
+class RecordingPresence {
+  readonly values: ActivityPresence[] = [];
+
+  setPresence(presence: ActivityPresence): void {
+    this.values.push(presence);
+  }
+}
+
+function message(
+  id: string,
+  channelId = "channel-a",
+  username = "Makan",
+): HumanMessage {
+  return {
+    id,
+    channelId,
+    userId: username.toLowerCase(),
+    username,
+    content: id,
+    createdAt: Date.now(),
+  };
+}
+
+function reply(text: string, history: ConversationItem[] = []): ConversationOutcome {
+  return { type: "reply", text, history };
+}
+
+function wait(history: ConversationItem[] = []): ConversationOutcome {
+  return { type: "wait", history };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function until(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for session behavior");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
+function createSession(
+  orchestrator: ScriptedOrchestrator,
+  transport = new RecordingTransport(),
+  presence = new RecordingPresence(),
+  timingOverrides: Partial<typeof fastTimings> = fastTimings,
+) {
+  const session = new BotSession(
+    "system instructions",
+    orchestrator,
+    transport,
+    presence,
+    quietLogger,
+    timingOverrides,
+  );
+  return { session, transport, presence };
+}
+
+test("starts sleeping, keeps bounded channel context, and batches an awake channel", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([reply("hey")]);
+  const { session, transport, presence } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  for (let index = 1; index <= 6; index += 1) {
+    session.handleMessage(message(`old-${String(index)}`), false);
+  }
+  session.handleMessage(message("ping"), true);
+  session.handleMessage(message("follow-up"), false);
+
+  await until(() => orchestrator.calls.length === 1 && transport.messages.length === 1);
+
+  const prompt = orchestrator.calls[0]?.userText ?? "";
+  assert.doesNotMatch(prompt, /old-1/);
+  assert.match(prompt, /old-2/);
+  assert.match(prompt, /old-6/);
+  assert.match(prompt, /New messages:\nMakan: ping follow-up/);
+  assert.deepEqual(presence.values[0], { status: "online" });
+  assert.deepEqual(transport.messages, [{ channelId: "channel-a", text: "hey" }]);
+});
+
+test("typing activity postpones batching until the active user settles", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait()]);
+  const { session } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("ping"), true);
+  session.handleTyping("channel-a", "makan", "Makan");
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(orchestrator.calls.length, 0);
+
+  await until(() => orchestrator.calls.length === 1);
+});
+
+test("refreshes typing during processing and promotes messages received meanwhile", async (t) => {
+  const first = deferred<ConversationOutcome>();
+  const rememberedHistory: ConversationItem[] = [
+    { type: "message", role: "assistant", text: "first answer" },
+  ];
+  const orchestrator = new ScriptedOrchestrator([first.promise, wait(rememberedHistory)]);
+  const { session, transport } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("ping"), true);
+  await until(() => orchestrator.calls.length === 1);
+  session.handleMessage(message("during-model"), false);
+  await until(() => transport.typing.length >= 2);
+
+  first.resolve(reply("first", rememberedHistory));
+  await until(() => orchestrator.calls.length === 2);
+
+  assert.match(orchestrator.calls[1]?.userText ?? "", /during-model/);
+  assert.deepEqual(orchestrator.calls[1]?.history, rememberedHistory);
+});
+
+test("queues pinged channels FIFO and promotes each only after sleep", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([
+    { type: "sleep", summary: "a done" },
+    { type: "sleep", summary: "b done" },
+    reply("c active"),
+  ]);
+  const { session, transport } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("a-ping", "channel-a", "A"), true);
+  session.handleMessage(message("b-ping", "channel-b", "B"), true);
+  session.handleMessage(message("c-ping", "channel-c", "C"), true);
+  session.handleMessage(message("b-more", "channel-b", "B"), false);
+
+  await until(() => orchestrator.calls.length === 3 && transport.messages.length === 1);
+
+  assert.match(orchestrator.calls[0]?.userText ?? "", /a-ping/);
+  assert.match(orchestrator.calls[1]?.userText ?? "", /b-ping b-more/);
+  assert.match(orchestrator.calls[2]?.userText ?? "", /c-ping/);
+  assert.deepEqual(orchestrator.calls.map((call) => call.history), [[], [], []]);
+  assert.deepEqual(transport.messages, [{ channelId: "channel-c", text: "c active" }]);
+});
+
+test("applies reply, react, wait, and sleep outcomes through the transports", async (t) => {
+  const history: ConversationItem[] = [{ type: "message", role: "assistant", text: "memory" }];
+  const orchestrator = new ScriptedOrchestrator([
+    {
+      type: "reply",
+      text: "hello",
+      reaction: "👋",
+      reasoningSummary: "A greeting is useful.",
+      history,
+    },
+    { type: "react", reaction: "👍", history },
+    wait(history),
+    { type: "sleep", summary: "Finished talking.", text: "later", reaction: "😴" },
+  ]);
+  const { session, transport, presence } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("one"), true);
+  await until(() => transport.messages.length === 1);
+  session.handleMessage(message("two"), false);
+  await until(() => transport.reactions.length === 2);
+  session.handleMessage(message("three"), false);
+  await until(() => orchestrator.calls.length === 3);
+  session.handleMessage(message("four"), false);
+  await until(() => transport.messages.length === 2 && presence.values.at(-1)?.status === "idle");
+
+  assert.deepEqual(transport.messages.map(({ text }) => text), ["hello", "later"]);
+  assert.deepEqual(transport.reactions.map(({ messageId, emoji }) => ({ messageId, emoji })), [
+    { messageId: "one", emoji: "👋" },
+    { messageId: "two", emoji: "👍" },
+    { messageId: "four", emoji: "😴" },
+  ]);
+  assert.ok(transport.statuses.some(({ message }) => message === "Model reasoning"));
+  assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
+  assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));
+});
+
+test("idle sleep clears history before a later wake", async (t) => {
+  const oldHistory: ConversationItem[] = [
+    { type: "message", role: "assistant", text: "old memory" },
+  ];
+  const orchestrator = new ScriptedOrchestrator([reply("first", oldHistory), wait()]);
+  const { session, presence } = createSession(orchestrator, undefined, undefined, {
+    ...fastTimings,
+    idleSleepMs: 25,
+  });
+  t.after(() => session.stop());
+
+  session.handleMessage(message("first-ping"), true);
+  await until(() => presence.values.at(-1)?.status === "idle");
+  session.handleMessage(message("second-ping"), true);
+  await until(() => orchestrator.calls.length === 2);
+
+  assert.deepEqual(orchestrator.calls[1]?.history, []);
+  assert.deepEqual(presence.values.map(({ status }) => status), ["online", "idle", "online"]);
+});
+
+test("rejects invalid timing overrides", () => {
+  assert.throws(
+    () => createSession(new ScriptedOrchestrator([]), undefined, undefined, { idleSleepMs: -1 }),
+    /idleSleepMs must be a non-negative finite number/,
+  );
+});
