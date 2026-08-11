@@ -8,6 +8,7 @@ Ben is an AI-powered member of the server. It participates in conversations, can
 
 - Assume the development server is already running unless told otherwise. Do not start or restart the server unless necessary or explicitly requested.
 - Use Conventional Commit prefixes for commit messages, such as `feat:`, `fix:`, `docs:`, `test:`, and `chore:`.
+- Use Git directly for commits and pushes. Do not require GitHub CLI authentication unless the task specifically needs GitHub API features such as pull requests.
 
 ## TypeScript conventions
 

@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 3 — completed; Phase 4 not started
+- Current phase: Phase 4 — completed; Phase 5 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–3 only)
+- Replacement implementation: `src-next` (Phases 1–4 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -252,10 +252,10 @@ check.
 ### Discord and lifecycle
 
 - [ ] Required intents, message/typing/interaction/error handlers, and shutdown handling.
-- [ ] Ignore bot messages and normalize human messages without leaking SDK types.
+- [x] Ignore bot messages and normalize human messages without leaking SDK types.
 - [ ] Detect direct pings and register/handle `/usage`.
-- [ ] Send messages, reactions, typing, status logs, and presence safely.
-- [ ] Resolve user/channel mentions and escape `@everyone`/`@here`.
+- [x] Send messages, reactions, typing, status logs, and presence safely.
+- [x] Resolve user/channel mentions and escape `@everyone`/`@here`.
 - [ ] Restrict allowed mentions and reject missing or ambiguous lookups.
 
 ### Session and context
@@ -411,12 +411,28 @@ Done when OpenAI types remain inside `model/openai` and the adapter knows no Ben
 
 ### Phase 4 — Discord boundary
 
-Status: Not started
+Status: Complete
 
-- [ ] Implement client/event input through `DiscordAdapter`.
-- [ ] Implement output through `DiscordTransport` and decide presence ownership.
-- [ ] Port directories, mentions, member/channel resolution, and broadcast safety.
-- [ ] Test through a small owned Discord gateway/client boundary without network calls.
+- [x] Implement client/event input through `DiscordAdapter`.
+- [x] Implement output through `DiscordTransport` and decide presence ownership.
+- [x] Port directories, mentions, member/channel resolution, and broadcast safety.
+- [x] Test through a small owned Discord gateway/client boundary without network calls.
+
+Completed on 2026-08-10:
+
+- `DiscordJsGateway` is the only replacement module that imports `discord.js`. It owns the required
+  intents and translates ready, message, typing, error, channel, member, output, reaction, and
+  presence operations through a small application-owned contract.
+- `DiscordAdapter` ignores bot input, normalizes messages and known mentions, detects direct pings,
+  forwards typing activity, and owns login/shutdown without depending on session state.
+- `DiscordTransport` sends messages, reactions, typing, and optional status logs. It escapes
+  broadcasts, allows only verified user mentions, resolves unique guild users/channels, and leaves
+  unresolved or ambiguous names as plain text.
+- Presence uses a separate `PresenceTransport` capability because availability and custom activity
+  belong to internal status behavior rather than ordinary conversation delivery.
+- Six Discord boundary tests run entirely through a fake gateway. The replacement suite now has 49
+  passing tests, and `pnpm typecheck:next` passes. `pnpm lint` remains unavailable because the local
+  `eslint` binary is missing; no dependencies were installed or changed.
 
 Done when application code imports no `discord.js` types and Discord input/output are separate from
 session state.
@@ -521,12 +537,13 @@ Done when one verified `src` remains and all normal scripts target it.
   adapter and is not required by the application contract.
 - Associate OpenAI encrypted reasoning continuations with in-memory portable reasoning items inside
   `OpenAIMapper`; omit continuation data when history did not originate from that adapter instance.
+- Keep presence separate from `ChatTransport` through a small `PresenceTransport` capability;
+  conversation output does not own custom activity state.
 
 ## Open questions
 
 - Same `Model` interface for internal actions, or a narrower operation?
 - Copied prompts in `src-next`, or neutral root-level prompt assets?
-- Presence inside `ChatTransport`, or a separate small capability?
 - Which existing-toolchain command provides the cleanest TypeScript tests and timer control?
 
 Resolve questions only when their phase needs an answer, then move the result into Decisions.
