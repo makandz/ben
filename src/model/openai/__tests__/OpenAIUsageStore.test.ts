@@ -43,7 +43,7 @@ test("treats a zero budget as unlimited", async (context) => {
   assert.equal((await store.getTodaySummary(fixtureDate)).remainingBudgetUsd, undefined);
 });
 
-test("records all token categories and atomically updates compatible JSON", async (context) => {
+test("serializes usage records and atomically updates compatible JSON", async (context) => {
   const directory = await createTempDirectory(context);
   const store = new OpenAIUsageStore(directory, "gpt-5.4-mini", 1);
   const usage = {
@@ -53,15 +53,20 @@ test("records all token categories and atomically updates compatible JSON", asyn
     totalTokens: 1_500,
   };
 
-  const recorded = await store.record("gpt-5.4-mini", usage, fixtureDate);
+  const recorded = await Promise.all(
+    Array.from({ length: 20 }, () => store.record("gpt-5.4-mini", usage, fixtureDate)),
+  );
   const persisted = JSON.parse(await readFile(path.join(directory, "2601.json"), "utf8"));
 
-  assert.equal(recorded.costUsd, 0.002115);
-  assert.equal(recorded.totalCostUsd, 0.002115);
+  assert.equal(recorded[0]?.costUsd, 0.002115);
+  assert.equal(recorded.at(-1)?.totalCostUsd, persisted.days["260102"].costUsd);
   assert.deepEqual(persisted.days["260102"], {
-    requests: 1,
-    ...usage,
-    costUsd: 0.002115,
+    requests: 20,
+    inputTokens: 24_000,
+    cachedInputTokens: 4_000,
+    outputTokens: 6_000,
+    totalTokens: 30_000,
+    costUsd: 0.04229999999999999,
   });
   await assert.rejects(readFile(path.join(directory, "2601.json.tmp"), "utf8"));
 });

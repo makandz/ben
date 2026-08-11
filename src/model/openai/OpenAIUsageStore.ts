@@ -1,7 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { TokenUsage } from "../../app/types.js";
+import {
+  isRecord,
+  readJsonFile,
+  UpdateQueue,
+  writeJsonFileAtomic,
+} from "../../storage/JsonFile.js";
 import { calculateCostUsd, getModelPricing } from "../pricing.js";
 
 export type UsageDay = TokenUsage & {
@@ -42,6 +47,8 @@ const silentLogger: UsageLogger = { warn: () => undefined };
 
 /** Persists compatible monthly OpenAI usage totals using atomic file replacement. */
 export class OpenAIUsageStore {
+  private readonly updates = new UpdateQueue();
+
   /**
    * Creates a usage store for one displayed model and shared daily budget.
    *
@@ -113,46 +120,32 @@ export class OpenAIUsageStore {
    */
   async record(model: string, usage: TokenUsage, now = new Date()): Promise<RecordedUsage> {
     const day = formatDay(now);
-    const monthFile = await this.readMonthFile(formatMonth(now));
-    const dayUsage = monthFile.days[day] ?? emptyUsageDay();
     const costUsd = calculateCostUsd(usage, getModelPricing(model));
-
-    dayUsage.requests += 1;
-    dayUsage.inputTokens += usage.inputTokens;
-    dayUsage.cachedInputTokens += usage.cachedInputTokens;
-    dayUsage.outputTokens += usage.outputTokens;
-    dayUsage.totalTokens += usage.totalTokens;
-    dayUsage.costUsd += costUsd;
-    monthFile.days[day] = dayUsage;
-    await this.writeMonthFile(monthFile);
-
-    return { day, costUsd, totalCostUsd: dayUsage.costUsd, ...usage };
+    return this.updates.run(async () => {
+      const monthFile = await this.readMonthFile(formatMonth(now));
+      const dayUsage = monthFile.days[day] ?? emptyUsageDay();
+      dayUsage.requests += 1;
+      dayUsage.inputTokens += usage.inputTokens;
+      dayUsage.cachedInputTokens += usage.cachedInputTokens;
+      dayUsage.outputTokens += usage.outputTokens;
+      dayUsage.totalTokens += usage.totalTokens;
+      dayUsage.costUsd += costUsd;
+      monthFile.days[day] = dayUsage;
+      await writeJsonFileAtomic(this.monthFilePath(monthFile.month), monthFile);
+      return { day, costUsd, totalCostUsd: dayUsage.costUsd, ...usage };
+    });
   }
 
   /** Reads one compatible usage month or returns an empty month when absent. */
   private async readMonthFile(month: string): Promise<UsageMonthFile> {
     const filePath = this.monthFilePath(month);
-
     try {
-      const parsed = JSON.parse(await readFile(filePath, "utf8")) as unknown;
-      return parseMonthFile(parsed, month);
+      const parsed = await readJsonFile(filePath);
+      return parsed === undefined ? { month, days: {} } : parseMonthFile(parsed, month);
     } catch (error) {
-      if (isNotFoundError(error)) {
-        return { month, days: {} };
-      }
-
       this.logger.warn("openai.usage_read_failed", { path: filePath, error: String(error) });
       throw error;
     }
-  }
-
-  /** Atomically writes one usage month. */
-  private async writeMonthFile(monthFile: UsageMonthFile): Promise<void> {
-    const filePath = this.monthFilePath(monthFile.month);
-    const tempPath = `${filePath}.tmp`;
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(tempPath, `${JSON.stringify(monthFile, null, 2)}\n`, "utf8");
-    await rename(tempPath, filePath);
   }
 
   /** Resolves the JSON path for one compact year-month key. */
@@ -210,11 +203,6 @@ function isUsageDay(value: unknown): value is UsageDay {
   );
 }
 
-/** Narrows an unknown value to a plain record. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Checks that a value is a finite non-negative number. */
 function isNonNegativeFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -230,9 +218,4 @@ function formatMonth(date: Date): string {
   const year = (date.getFullYear() % 100).toString().padStart(2, "0");
   const month = (date.getMonth() + 1).toString().padStart(2, "0");
   return `${year}${month}`;
-}
-
-/** Identifies a missing-file filesystem error. */
-function isNotFoundError(error: unknown): boolean {
-  return isRecord(error) && error.code === "ENOENT";
 }

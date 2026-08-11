@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 
 import type { Logger } from "../logger.js";
 import type { ScheduleRepeat } from "../scheduling/scheduleTime.js";
+import { isRecord, readJsonFile, UpdateQueue, writeJsonFileAtomic } from "./JsonFile.js";
 
 export type ScheduledMessageTarget = {
   userId: string;
@@ -49,6 +48,8 @@ type ScheduledMessagesData = {
 
 /** Persists scheduled messages in the production-compatible JSON shape. */
 export class ScheduledMessageStore {
+  private readonly updates = new UpdateQueue();
+
   /**
    * @param filePath - JSON file using the production-compatible scheduled-message shape.
    * @param logger - Logger used when malformed individual entries are ignored.
@@ -66,7 +67,6 @@ export class ScheduledMessageStore {
    * @returns The stored scheduled message with its generated identifier.
    */
   async add(input: CreateScheduledMessageInput, now = new Date()): Promise<ScheduledMessage> {
-    const data = await this.read();
     const timestamp = now.toISOString();
     const message: ScheduledMessage = {
       id: `sm_${randomUUID().slice(0, 8)}`,
@@ -85,9 +85,12 @@ export class ScheduledMessageStore {
       updatedAt: timestamp,
     };
 
-    data.messages.push(message);
-    await this.write(data);
-    return message;
+    return this.updates.run(async () => {
+      const data = await this.read();
+      data.messages.push(message);
+      await writeJsonFileAtomic(this.filePath, data);
+      return message;
+    });
   }
 
   /**
@@ -110,20 +113,22 @@ export class ScheduledMessageStore {
    * @returns A promise that resolves after the update is persisted, or immediately if absent.
    */
   async markSent(id: string, nextRunAt: Date | undefined, now = new Date()): Promise<void> {
-    const data = await this.read();
-    const message = data.messages.find((item) => item.id === id);
-    if (message === undefined) return;
+    await this.updates.run(async () => {
+      const data = await this.read();
+      const message = data.messages.find((item) => item.id === id);
+      if (message === undefined) return;
 
-    const timestamp = now.toISOString();
-    message.lastRunAt = timestamp;
-    message.updatedAt = timestamp;
-    message.failureCount = 0;
-    if (nextRunAt === undefined) {
-      message.enabled = false;
-    } else {
-      message.nextRunAt = nextRunAt.toISOString();
-    }
-    await this.write(data);
+      const timestamp = now.toISOString();
+      message.lastRunAt = timestamp;
+      message.updatedAt = timestamp;
+      message.failureCount = 0;
+      if (nextRunAt === undefined) {
+        message.enabled = false;
+      } else {
+        message.nextRunAt = nextRunAt.toISOString();
+      }
+      await writeJsonFileAtomic(this.filePath, data);
+    });
   }
 
   /**
@@ -135,13 +140,15 @@ export class ScheduledMessageStore {
    * @returns A promise that resolves after the update is persisted, or immediately if absent.
    */
   async reschedule(id: string, nextRunAt: Date, now = new Date()): Promise<void> {
-    const data = await this.read();
-    const message = data.messages.find((item) => item.id === id);
-    if (message === undefined) return;
+    await this.updates.run(async () => {
+      const data = await this.read();
+      const message = data.messages.find((item) => item.id === id);
+      if (message === undefined) return;
 
-    message.nextRunAt = nextRunAt.toISOString();
-    message.updatedAt = now.toISOString();
-    await this.write(data);
+      message.nextRunAt = nextRunAt.toISOString();
+      message.updatedAt = now.toISOString();
+      await writeJsonFileAtomic(this.filePath, data);
+    });
   }
 
   /**
@@ -152,28 +159,29 @@ export class ScheduledMessageStore {
    * @returns The resulting failure count, or zero when the schedule no longer exists.
    */
   async markFailed(id: string, now = new Date()): Promise<number> {
-    const data = await this.read();
-    const message = data.messages.find((item) => item.id === id);
-    if (message === undefined) return 0;
+    return this.updates.run(async () => {
+      const data = await this.read();
+      const message = data.messages.find((item) => item.id === id);
+      if (message === undefined) return 0;
 
-    message.failureCount = (message.failureCount ?? 0) + 1;
-    message.updatedAt = now.toISOString();
-    await this.write(data);
-    return message.failureCount;
+      message.failureCount = (message.failureCount ?? 0) + 1;
+      message.updatedAt = now.toISOString();
+      await writeJsonFileAtomic(this.filePath, data);
+      return message.failureCount;
+    });
   }
 
   /** Reads the compatible container and ignores only malformed individual entries. */
   private async read(): Promise<ScheduledMessagesData> {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
+      parsed = await readJsonFile(this.filePath);
     } catch (error) {
-      if (isNotFoundError(error)) return { version: 1, messages: [] };
       if (error instanceof SyntaxError)
         throw new Error(`${this.filePath} must contain valid JSON.`);
       throw error;
     }
-
+    if (parsed === undefined) return { version: 1, messages: [] };
     if (!isRecord(parsed)) throw new Error(`${this.filePath} must contain a JSON object.`);
     if (!Array.isArray(parsed.messages)) return { version: 1, messages: [] };
     return {
@@ -182,18 +190,6 @@ export class ScheduledMessageStore {
         .map((message) => parseScheduledMessage(message, this.logger))
         .filter((message): message is ScheduledMessage => message !== undefined),
     };
-  }
-
-  /** Atomically replaces the store through a unique sibling temporary file. */
-  private async write(data: ScheduledMessagesData): Promise<void> {
-    const directory = path.dirname(this.filePath);
-    await mkdir(directory, { recursive: true });
-    const temporary = path.join(
-      directory,
-      `.${path.basename(this.filePath)}.${String(process.pid)}.${String(Date.now())}.tmp`,
-    );
-    await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(temporary, this.filePath);
   }
 }
 
@@ -264,14 +260,4 @@ function parseTargetUsers(value: unknown): ScheduledMessageTarget[] | undefined 
 /** Narrows a persisted recurrence value. */
 function isScheduleRepeat(value: unknown): value is ScheduleRepeat {
   return value === "none" || value === "daily" || value === "weekly";
-}
-
-/** Narrows an unknown value to a plain record. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Identifies a missing filesystem entry. */
-function isNotFoundError(error: unknown): boolean {
-  return isRecord(error) && error.code === "ENOENT";
 }

@@ -27,9 +27,14 @@ test("summary store reads the current shape, bounds entries, and writes atomical
       summary: "Ben and the group discussed a fictional weekend plan.",
     },
   ]);
-  for (let index = 1; index <= 5; index += 1) {
-    await store.add(` summary ${String(index)} `, new Date(`2026-02-0${String(index)}T00:00:00Z`));
-  }
+  await Promise.all(
+    Array.from({ length: 5 }, (_, index) =>
+      store.add(
+        ` summary ${String(index + 1)} `,
+        new Date(`2026-02-0${String(index + 1)}T00:00:00Z`),
+      ),
+    ),
+  );
 
   const stored = JSON.parse(await readFile(filePath, "utf8")) as {
     version: number;
@@ -69,14 +74,15 @@ test("known-people store reads the current shape and rejects ID and username dup
   const store = new KnownPeopleStore(filePath, logger);
 
   assert.deepEqual(await store.listForPrompt(), { sample_user: { name: "Sample" } });
-  assert.deepEqual(
-    await store.remember({
+  const [remembered] = await Promise.all([
+    store.remember({
       userId: "100000000000000002",
       username: "New_User",
       name: " New Person ",
     }),
-    { ok: true, username: "New_User", name: "New Person" },
-  );
+    store.remember({ userId: "100000000000000004", username: "second", name: "Second" }),
+  ]);
+  assert.deepEqual(remembered, { ok: true, username: "New_User", name: "New Person" });
   assert.deepEqual(
     await store.remember({
       userId: "100000000000000002",

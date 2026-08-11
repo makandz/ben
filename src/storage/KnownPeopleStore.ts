@@ -1,8 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
-
 import type { Logger } from "../logger.js";
 import type { KnownPeople } from "../prompts/formatMessages.js";
+import { isRecord, readJsonFile, UpdateQueue, writeJsonFileAtomic } from "./JsonFile.js";
 
 type StoredKnownPerson = { username: string; name: string };
 type KnownPeopleData = { people: Record<string, StoredKnownPerson> };
@@ -13,6 +11,8 @@ export type RememberKnownPersonResult =
 
 /** Persists verified Discord identities used to add real names to prompts. */
 export class KnownPeopleStore {
+  private readonly updates = new UpdateQueue();
+
   /**
    * @param filePath - JSON file compatible with the production known-people store.
    * @param logger - Logger used when malformed entries are ignored.
@@ -47,36 +47,44 @@ export class KnownPeopleStore {
     if (normalizedUsername.length === 0) return { ok: false, error: "missing Discord username" };
     if (name.length === 0) return { ok: false, error: "missing name" };
 
-    const data = await this.read();
-    const existing = data.people[userId];
-    if (existing !== undefined) {
-      return {
-        ok: false,
-        error: `${existing.username} is already remembered as "${existing.name}"`,
-      };
-    }
-    for (const [existingUserId, person] of Object.entries(data.people)) {
-      if (existingUserId !== userId && normalizeUsername(person.username) === normalizedUsername) {
-        return { ok: false, error: `${person.username} is already remembered as "${person.name}"` };
+    return this.updates.run<RememberKnownPersonResult>(async () => {
+      const data = await this.read();
+      const existing = data.people[userId];
+      if (existing !== undefined) {
+        return {
+          ok: false,
+          error: `${existing.username} is already remembered as "${existing.name}"`,
+        };
       }
-    }
+      for (const [existingUserId, person] of Object.entries(data.people)) {
+        if (
+          existingUserId !== userId &&
+          normalizeUsername(person.username) === normalizedUsername
+        ) {
+          return {
+            ok: false,
+            error: `${person.username} is already remembered as "${person.name}"`,
+          };
+        }
+      }
 
-    data.people[userId] = { username, name };
-    await this.write(data);
-    return { ok: true, username, name };
+      data.people[userId] = { username, name };
+      await writeJsonFileAtomic(this.filePath, data);
+      return { ok: true, username, name };
+    });
   }
 
   /** Reads and validates the current compatible storage shape. */
   private async read(): Promise<KnownPeopleData> {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
+      parsed = await readJsonFile(this.filePath);
     } catch (error) {
-      if (isNotFoundError(error)) return { people: {} };
       if (error instanceof SyntaxError)
         throw new Error(`${this.filePath} must contain valid JSON.`);
       throw error;
     }
+    if (parsed === undefined) return { people: {} };
     if (!isRecord(parsed)) throw new Error(`${this.filePath} must contain a JSON object.`);
     if (parsed.people === undefined) return { people: {} };
     if (!isRecord(parsed.people)) throw new Error(`${this.filePath} people must be a JSON object.`);
@@ -102,31 +110,9 @@ export class KnownPeopleStore {
     }
     return data;
   }
-
-  /** Atomically replaces the store through a unique sibling temporary file. */
-  private async write(data: KnownPeopleData): Promise<void> {
-    const directory = path.dirname(this.filePath);
-    await mkdir(directory, { recursive: true });
-    const temporary = path.join(
-      directory,
-      `.${path.basename(this.filePath)}.${String(process.pid)}.${String(Date.now())}.tmp`,
-    );
-    await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(temporary, this.filePath);
-  }
 }
 
 /** Normalizes Discord usernames for prompt and duplicate lookup. */
 function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
-}
-
-/** Narrows an unknown value to a plain record. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Identifies a missing filesystem entry. */
-function isNotFoundError(error: unknown): boolean {
-  return isRecord(error) && error.code === "ENOENT";
 }
