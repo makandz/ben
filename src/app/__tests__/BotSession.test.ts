@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { BotSession, type BotSessionPersistence } from "../BotSession.js";
-import type { ActivityPresence } from "../PresenceTransport.js";
+import type { PresenceState } from "../PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
 import { RecordingTransport } from "../../testing/RecordingTransport.js";
 import { ModelBudgetExceededError } from "../../model/Model.js";
@@ -46,9 +46,9 @@ class ScriptedOrchestrator {
 }
 
 class RecordingPresence {
-  readonly values: ActivityPresence[] = [];
+  readonly values: PresenceState[] = [];
 
-  setPresence(presence: ActivityPresence): void {
+  setPresence(presence: PresenceState): void {
     this.values.push(presence);
   }
 }
@@ -197,7 +197,6 @@ test("applies reply, react, wait, and sleep outcomes through the transports", as
       type: "reply",
       text: "hello",
       reaction: "👋",
-      reasoningSummary: "A greeting is useful.",
       history,
     },
     { type: "react", reaction: "👍", history },
@@ -228,7 +227,6 @@ test("applies reply, react, wait, and sleep outcomes through the transports", as
       { messageId: "four", emoji: "😴" },
     ],
   );
-  assert.ok(transport.statuses.some(({ message }) => message === "Model reasoning"));
   assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
   assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));
 });

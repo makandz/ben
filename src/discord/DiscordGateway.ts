@@ -63,6 +63,6 @@ export type DiscordGateway = {
   sendMessage(channelId: string, content: string, options: DiscordSendOptions): Promise<void>;
   sendTyping(channelId: string): Promise<void>;
   addReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
-  setPresence(status: "idle" | "online", activity?: string): void;
+  setPresence(status: "idle" | "online"): void;
   registerCommand(command: DiscordCommandDefinition): Promise<"registered" | "updated">;
 };

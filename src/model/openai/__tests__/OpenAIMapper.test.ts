@@ -60,11 +60,10 @@ test("maps text, reasoning, calls, usage, and private continuation data", () => 
 
   assert.deepEqual(turn, {
     items: [
-      { type: "reasoning", text: "Check the lookup." },
+      { type: "reasoning" },
       { type: "message", role: "assistant", text: "I'll check." },
       { type: "tool_call", callId: "call-2", name: "lookup", arguments: { query: "weather" } },
     ],
-    reasoningSummary: "Check the lookup.",
     usage: {
       inputTokens: 120,
       cachedInputTokens: 20,
@@ -133,7 +132,7 @@ function createResponse(): Response {
       {
         id: "reasoning-1",
         type: "reasoning",
-        summary: [{ type: "summary_text", text: " Check the lookup. " }],
+        summary: [],
         encrypted_content: "encrypted",
         status: "completed",
       },
@@ -155,7 +154,7 @@ function createResponse(): Response {
     ],
     parallel_tool_calls: false,
     previous_response_id: null,
-    reasoning: { effort: "low", summary: "concise" },
+    reasoning: { effort: "low" },
     store: false,
     temperature: null,
     text: { format: { type: "text" } },

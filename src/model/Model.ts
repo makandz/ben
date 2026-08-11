@@ -9,7 +9,6 @@ export type ModelRequest = {
 
 export type ModelTurn = {
   items: ConversationItem[];
-  reasoningSummary?: string;
   usage?: TokenUsage;
 };
 

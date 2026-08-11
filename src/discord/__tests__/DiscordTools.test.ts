@@ -439,7 +439,7 @@ class FakeGateway implements DiscordGateway {
   }
   async sendTyping(_channelId: string): Promise<void> {}
   async addReaction(_channelId: string, _messageId: string, _emoji: string): Promise<void> {}
-  setPresence(_status: "idle" | "online", _activity?: string): void {}
+  setPresence(_status: "idle" | "online"): void {}
   async registerCommand(): Promise<"registered"> {
     return "registered";
   }

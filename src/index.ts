@@ -6,11 +6,7 @@ import { createApplication, type Application } from "./app/createApplication.js"
 import { DiscordJsGateway } from "./discord/DiscordJsGateway.js";
 import { loadEnv, type AppEnv, type LogLevel } from "./env.js";
 import { Logger } from "./logger.js";
-import {
-  OpenAIModel,
-  OPENAI_CONVERSATION_MODEL,
-  OPENAI_INTERNAL_MODEL,
-} from "./model/openai/OpenAIModel.js";
+import { OpenAIModel, OPENAI_CONVERSATION_MODEL } from "./model/openai/OpenAIModel.js";
 import { OpenAIUsageStore } from "./model/openai/OpenAIUsageStore.js";
 import { loadSystemPrompt } from "./prompts/systemPrompt.js";
 
@@ -51,14 +47,6 @@ export async function createDefaultApplication(): Promise<Application> {
     gateway,
     usageStore,
     conversationModel: new OpenAIModel({ apiKey: env.openaiApiKey }, usageStore),
-    internalModel: new OpenAIModel(
-      {
-        apiKey: env.openaiApiKey,
-        model: OPENAI_INTERNAL_MODEL,
-        maxOutputTokens: 96,
-      },
-      usageStore,
-    ),
     instructions: await loadSystemPrompt(),
   });
 }

@@ -1,4 +1,4 @@
-import type { ActivityPresence, PresenceTransport } from "../app/PresenceTransport.js";
+import type { PresenceState, PresenceTransport } from "../app/PresenceTransport.js";
 import type { DiscordGateway } from "./DiscordGateway.js";
 
 /** Applies application presence without exposing discord.js activity types. */
@@ -11,11 +11,11 @@ export class DiscordPresence implements PresenceTransport {
   constructor(private readonly gateway: DiscordGateway) {}
 
   /**
-   * Applies Ben's online/idle state and optional activity text.
+   * Applies Ben's online/idle state.
    *
    * @param presence - Provider-neutral presence state to display.
    */
-  setPresence(presence: ActivityPresence): void {
-    this.gateway.setPresence(presence.status, presence.activity);
+  setPresence(presence: PresenceState): void {
+    this.gateway.setPresence(presence.status);
   }
 }

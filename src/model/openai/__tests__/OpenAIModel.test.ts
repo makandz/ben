@@ -48,7 +48,7 @@ test("makes one configured request, maps its turn, and records usage", async (co
     tool_choice: "required",
     parallel_tool_calls: false,
     max_output_tokens: 512,
-    reasoning: { effort: "low", summary: "concise" },
+    reasoning: { effort: "medium" },
     include: ["reasoning.encrypted_content"],
     store: false,
   });
@@ -82,7 +82,7 @@ test("blocks the provider request after the daily budget is reached", async (con
   assert.equal(calls, 0);
 });
 
-test("supports internal model requests without forcing a tool call", async (context) => {
+test("supports requests without forcing a tool call", async (context) => {
   const directory = await createTempDirectory(context);
   const usageStore = new OpenAIUsageStore(directory, "gpt-5.4-mini", 0);
   let request: ResponseCreateParamsNonStreaming | undefined;
@@ -96,7 +96,7 @@ test("supports internal model requests without forcing a tool call", async (cont
             type: "message",
             role: "assistant",
             status: "completed",
-            content: [{ type: "output_text", text: "status", annotations: [] }],
+            content: [{ type: "output_text", text: "hello", annotations: [] }],
           },
         ],
       } as unknown as Response;
@@ -104,14 +104,14 @@ test("supports internal model requests without forcing a tool call", async (cont
   });
 
   const turn = await model.invoke({
-    instructions: "Pick a status.",
-    history: [{ type: "message", role: "user", text: "Run now." }],
+    instructions: "Be concise.",
+    history: [{ type: "message", role: "user", text: "Say hello." }],
     tools: [],
   });
 
   assert.equal("tools" in (request ?? {}), false);
   assert.equal("tool_choice" in (request ?? {}), false);
-  assert.deepEqual(turn.items, [{ type: "message", role: "assistant", text: "status" }]);
+  assert.deepEqual(turn.items, [{ type: "message", role: "assistant", text: "hello" }]);
 });
 
 function createResponse(): Response {

@@ -83,7 +83,6 @@ test("builds all optional prompt context in stable order", () => {
     messages: [{ ...messageBase, id: "2", username: "makan", content: "hello" }],
     knownPeople: { makan: { name: "Makan" } },
     includeKnownPeople: true,
-    currentActivityStatus: "hanging out",
     currentBotTime: "Monday at noon",
     pingedByUsername: "makan",
     recentConversationSummaries: [{ summary: "They discussed lunch." }],
@@ -93,7 +92,6 @@ test("builds all optional prompt context in stable order", () => {
     result,
     [
       "Known people:\n- makan is Makan",
-      'Ben\'s current activity status is "hanging out".',
       "Current bot time: Monday at noon. Scheduled message tool dates must be YYYY-MM-DD and times must be 24-hour HH:mm in the bot's local time.",
       "Ben was pinged by makan (Makan).",
       "Recent conversations:\n- They discussed lunch.",

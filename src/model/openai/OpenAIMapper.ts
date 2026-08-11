@@ -43,16 +43,14 @@ export class OpenAIMapper {
    * Translates a Responses API response into one portable model turn.
    *
    * @param response - Completed provider response.
-   * @returns Portable output items, reasoning summary, and token usage.
+   * @returns Portable output items and token usage.
    */
   toTurn(response: Response): ModelTurn {
     const items = response.output.flatMap((item) => this.toConversationItems(item));
-    const reasoningSummary = extractReasoningSummary(response.output);
     const usage = response.usage === undefined ? undefined : mapUsage(response.usage);
 
     return {
       items,
-      ...(reasoningSummary === undefined ? {} : { reasoningSummary }),
       ...(usage === undefined ? {} : { usage }),
     };
   }
@@ -116,35 +114,13 @@ export class OpenAIMapper {
     }
 
     if (item.type === "reasoning") {
-      const reasoning: ConversationItem = {
-        type: "reasoning",
-        text: extractReasoningText(item),
-      };
+      const reasoning: ConversationItem = { type: "reasoning" };
       this.reasoningContinuations.set(reasoning, item);
       return [reasoning];
     }
 
     return [];
   }
-}
-
-/**
- * Extracts a public reasoning summary from provider output.
- *
- * @param output - Provider output items from one response.
- * @returns Normalized summary text when the response contains one.
- */
-export function extractReasoningSummary(output: readonly ResponseOutputItem[]): string | undefined {
-  const text = output
-    .filter((item) => item.type === "reasoning")
-    .flatMap((item) => item.summary)
-    .map((summary) => summary.text.trim())
-    .filter((summary) => summary.length > 0)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return text.length === 0 ? undefined : text;
 }
 
 /** Converts provider token fields into the application usage contract. */
@@ -171,14 +147,4 @@ function stringifyJson(value: unknown): string {
   if (value === undefined || typeof value === "function" || typeof value === "symbol")
     return "null";
   return JSON.stringify(value);
-}
-
-/** Extracts portable text from one reasoning item. */
-function extractReasoningText(item: ResponseReasoningItem): string {
-  return [...item.summary, ...(item.content ?? [])]
-    .map((part) => part.text.trim())
-    .filter((text) => text.length > 0)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
 }

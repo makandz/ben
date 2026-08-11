@@ -20,12 +20,10 @@ test("composition performs no Discord login until explicitly started", async () 
       discordLogChannelId: undefined,
       openaiDailyBudgetUsd: 0,
       logLevel: "error",
-      logPrompts: false,
     },
     logger: new Logger("error"),
     gateway,
     conversationModel: new ScriptedModel([]),
-    internalModel: new ScriptedModel([]),
     instructions: "Be Ben.",
     usageStore: new OpenAIUsageStore("logs/openai-usage", "gpt-5.4-mini", 0),
   });
