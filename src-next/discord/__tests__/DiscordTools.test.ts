@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ChatTransport } from "../../app/ChatTransport.js";
+import type {
+  CreateScheduledMessageInput,
+  ScheduledMessage,
+} from "../../storage/ScheduledMessageStore.js";
 import type { Tool } from "../../tools/Tool.js";
 import { ToolRegistry } from "../../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../../tools/conversationControls.js";
@@ -14,6 +18,8 @@ import type {
   DiscordSendOptions,
   DiscordUser,
 } from "../DiscordGateway.js";
+import { createScheduledMessageDelivery } from "../ScheduledMessageDelivery.js";
+import { createScheduledMessageTool } from "../tools/createScheduledMessage.js";
 import { createRememberPersonTool } from "../tools/rememberPerson.js";
 import { createSendMessageTool } from "../tools/sendChannelMessage.js";
 
@@ -110,6 +116,114 @@ test("cross-channel send reports missing, ambiguous, and transport failures with
   assert.deepEqual(recorded, []);
 });
 
+test("scheduled-message tool verifies targets and stores a future local schedule", async () => {
+  const gateway = new FakeGateway();
+  gateway.channels = [general, { ...plans, sendable: true }];
+  gateway.members = [
+    { id: "one", username: "makan", displayName: "Makan", bot: false },
+    { id: "two", username: "friend", displayName: "Friend", bot: false },
+  ];
+  const added: CreateScheduledMessageInput[] = [];
+  const statuses: string[] = [];
+  const tool = createScheduleTool(gateway, {
+    async add(input) {
+      added.push(input);
+      return storedSchedule(input);
+    },
+  }, statuses);
+
+  const result = await execute(tool, {
+    message: "  remember   the thing  ",
+    target_usernames: ["@makan", "friend"],
+    channel: "#plans",
+    run_date: "2026-01-02",
+    run_time: "09:30",
+    repeat: "weekly",
+  });
+
+  assert.deepEqual(result, {
+    type: "continue",
+    result: {
+      ok: true,
+      id: "sm_created",
+      nextRunAt: "2026-01-02T14:30:00.000Z",
+      repeat: "weekly",
+      channel: "plans",
+      targetUsernames: ["makan", "friend"],
+    },
+  });
+  assert.equal(added[0]?.message, "remember the thing");
+  assert.deepEqual(added[0]?.targetUsers, [
+    { userId: "one", username: "makan" },
+    { userId: "two", username: "friend" },
+  ]);
+  assert.deepEqual(added[0]?.nextRunAt, new Date("2026-01-02T14:30:00.000Z"));
+  assert.deepEqual(
+    { userId: added[0]?.createdByUserId, username: added[0]?.createdByUsername },
+    { userId: "creator", username: "Creator" },
+  );
+  assert.match(gateway.sent[0]?.content ?? "", /Scheduled every week/);
+  assert.equal(statuses.length, 1);
+});
+
+test("scheduled-message tool controls content, creator, destination, target, time, and recurrence", async () => {
+  const gateway = new FakeGateway();
+  const store = { async add(input: CreateScheduledMessageInput) { return storedSchedule(input); } };
+  const create = (creator: { userId: string; username: string } | null = {
+    userId: "creator",
+    username: "Creator",
+  }) =>
+    createScheduleTool(gateway, store, [], creator);
+  const valid = {
+    message: "hello",
+    target_usernames: ["makan"],
+    channel: null,
+    run_date: "2026-01-02",
+    run_time: "09:30",
+    repeat: "none",
+  };
+
+  assert.match(JSON.stringify(await execute(create(), { ...valid, message: " " })), /1-1000/);
+  assert.match(JSON.stringify(await execute(create(null), valid)), /missing creator/);
+  assert.match(JSON.stringify(await execute(create(), { ...valid, run_date: "2025-12-31" })), /future/);
+  assert.match(JSON.stringify(await execute(create(), { ...valid, repeat: "monthly" })), /repeat must/);
+  assert.match(JSON.stringify(await execute(create(), { ...valid, target_usernames: ["@everyone"] })), /real Discord users/);
+
+  gateway.members = [
+    { id: "one", username: "sam_one", displayName: "Sam", bot: false },
+    { id: "two", username: "sam_two", displayName: "Sam", bot: false },
+  ];
+  assert.match(JSON.stringify(await execute(create(), { ...valid, target_usernames: ["sam"] })), /no matching/);
+  gateway.channels = [general, { ...plans, sendable: false }];
+  assert.match(JSON.stringify(await execute(create(), { ...valid, channel: "plans" })), /not sendable/);
+});
+
+test("scheduled delivery pings only stored target IDs with an explicit mention policy", async () => {
+  const gateway = new FakeGateway();
+  const deliver = createScheduledMessageDelivery(gateway);
+  await deliver(storedSchedule({
+    channelId: "plans",
+    channelName: "plans",
+    message: "hello @everyone <@999>",
+    targetUsers: [
+      { userId: "one", username: "makan" },
+      { userId: "two", username: "friend" },
+    ],
+    runDate: "2026-01-02",
+    runTime: "09:30",
+    repeat: "none",
+    nextRunAt: new Date("2026-01-02T14:30:00.000Z"),
+    createdByUserId: "creator",
+    createdByUsername: "Creator",
+  }));
+
+  assert.deepEqual(gateway.sent, [{
+    channelId: "plans",
+    content: "<@one> <@two> hello @\u200beveryone <@\u200b999>",
+    options: { allowUserMentions: true },
+  }]);
+});
+
 test("Discord capability tools register through the generic tool registry", () => {
   const gateway = new FakeGateway();
   const transport = new FakeTransport();
@@ -121,11 +235,21 @@ test("Discord capability tools register through the generic tool registry", () =
     getActiveChannelId: () => "general",
     logger,
   });
-  const registry = new ToolRegistry([sendMessage, rememberPerson, waitTool, sleepTool]);
+  const scheduledMessage = createScheduleTool(gateway, {
+    async add(input) { return storedSchedule(input); },
+  }, []);
+  const registry = new ToolRegistry([
+    sendMessage,
+    rememberPerson,
+    scheduledMessage,
+    waitTool,
+    sleepTool,
+  ]);
 
   assert.deepEqual(registry.definitions().map(({ name }) => name), [
     "send_message",
     "remember_person",
+    "create_scheduled_message",
     "wait_for_more_messages",
     "sleep_conversation",
   ]);
@@ -144,6 +268,48 @@ function createSendTool(
     recordBotMessage,
     logger,
   });
+}
+
+function createScheduleTool(
+  gateway: FakeGateway,
+  store: { add(input: CreateScheduledMessageInput): Promise<ScheduledMessage> },
+  statuses: string[],
+  creator: { userId: string; username: string } | null = {
+    userId: "creator",
+    username: "Creator",
+  },
+): Tool {
+  return createScheduledMessageTool({
+    gateway,
+    users: new UserMentionDirectory(),
+    channels: new ChannelMentionDirectory(),
+    store,
+    status: { async logStatus(text) { statuses.push(text); } },
+    getActiveChannelId: () => "general",
+    getCreator: () => creator ?? undefined,
+    logger,
+    timeZone: "America/Toronto",
+    now: () => new Date("2026-01-01T12:00:00.000Z"),
+  });
+}
+
+function storedSchedule(input: CreateScheduledMessageInput): ScheduledMessage {
+  return {
+    id: "sm_created",
+    channelId: input.channelId,
+    channelName: input.channelName,
+    message: input.message,
+    targetUsers: input.targetUsers,
+    runDate: input.runDate,
+    runTime: input.runTime,
+    repeat: input.repeat,
+    nextRunAt: input.nextRunAt.toISOString(),
+    enabled: true,
+    createdByUserId: input.createdByUserId,
+    createdByUsername: input.createdByUsername,
+    createdAt: "2026-01-01T12:00:00.000Z",
+    updatedAt: "2026-01-01T12:00:00.000Z",
+  };
 }
 
 async function execute(tool: Tool, argumentsValue: unknown) {

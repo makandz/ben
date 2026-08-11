@@ -43,6 +43,11 @@ export type ConversationRunner = {
   ): Promise<ConversationOutcome>;
 };
 
+export type ActiveConversationUser = {
+  userId: string;
+  username: string;
+};
+
 /** Persistence capabilities used at wake, prompt-build, and sleep boundaries. */
 export type BotSessionPersistence = {
   summaries?: {
@@ -94,6 +99,7 @@ export class BotSession {
   private idleTimer: NodeJS.Timeout | undefined;
   private typingTimer: NodeJS.Timeout | undefined;
   private botMessageSequence = 0;
+  private activeCreator: ActiveConversationUser | undefined;
 
   /**
    * Creates the application session state machine.
@@ -193,6 +199,11 @@ export class BotSession {
   /** @returns The active Discord channel, or undefined while sleeping. */
   getActiveChannelId(): string | undefined {
     return this.activeChannelId;
+  }
+
+  /** @returns The first human in the batch currently invoking tools, if any. */
+  getActiveCreator(): ActiveConversationUser | undefined {
+    return this.activeCreator === undefined ? undefined : { ...this.activeCreator };
   }
 
   /**
@@ -301,6 +312,10 @@ export class BotSession {
     this.pendingBatch = [];
     this.pendingRecentContext = [];
     this.mode = "processing";
+    const creator = messages[0];
+    this.activeCreator = creator === undefined
+      ? undefined
+      : { userId: creator.userId, username: creator.username };
 
     const stopTyping = this.startTyping(channelId);
     const includeFirstPromptContext = this.history.length === 0;
@@ -330,6 +345,7 @@ export class BotSession {
         .catch((error: unknown): ConversationOutcome => ({ type: "failed", error }));
       await this.applyOutcome(outcome, channelId, reactionMessageId);
     } finally {
+      this.activeCreator = undefined;
       stopTyping();
     }
   }
@@ -445,6 +461,7 @@ export class BotSession {
     this.pendingRecentContext = [];
     this.queuedDuringProcessing = [];
     this.history = [];
+    this.activeCreator = undefined;
     this.typingByChannel.clear();
     this.presence.setPresence({ status: "idle" });
     this.logger.info("session.sleep", { reason, queuedChannels: this.queuedWakes.length });

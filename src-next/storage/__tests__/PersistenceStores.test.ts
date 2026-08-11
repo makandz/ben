@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { ConversationSummaryStore } from "../ConversationSummaryStore.js";
 import { KnownPeopleStore } from "../KnownPeopleStore.js";
+import { ScheduledMessageStore } from "../ScheduledMessageStore.js";
 
 const warnings: string[] = [];
 const logger = { warn(event: string) { warnings.push(event); } };
@@ -88,9 +89,73 @@ test("known-people store ignores malformed entries and rejects malformed contain
   await assert.rejects(() => store.listForPrompt(), /people must be a JSON object/);
 });
 
+test("scheduled-message store reads the current shape and preserves lifecycle fields", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "scheduled-messages.json");
+  await copyFile("src-next/testing/fixtures/scheduled-messages.json", filePath);
+  const store = new ScheduledMessageStore(filePath, logger);
+
+  const [fixture] = await store.listDue(new Date("2026-02-04T00:30:00.000Z"));
+  assert.equal(fixture?.id, "sm_example1");
+  assert.deepEqual(fixture?.targetUsers, [{
+    userId: "100000000000000001",
+    username: "sample_user",
+  }]);
+  assert.equal(await store.markFailed("sm_example1", new Date("2026-02-04T00:31:00.000Z")), 1);
+  await store.reschedule(
+    "sm_example1",
+    new Date("2026-02-11T00:30:00.000Z"),
+    new Date("2026-02-04T00:32:00.000Z"),
+  );
+  await store.markSent(
+    "sm_example1",
+    new Date("2026-02-18T00:30:00.000Z"),
+    new Date("2026-02-11T00:30:00.000Z"),
+  );
+
+  const stored = JSON.parse(await readFile(filePath, "utf8")) as {
+    messages: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(stored.messages[0], {
+    ...fixture,
+    nextRunAt: "2026-02-18T00:30:00.000Z",
+    updatedAt: "2026-02-11T00:30:00.000Z",
+    lastRunAt: "2026-02-11T00:30:00.000Z",
+    failureCount: 0,
+  });
+  assert.deepEqual(await readdir(directory), ["scheduled-messages.json"]);
+});
+
+test("scheduled-message store adds atomically and controls malformed data", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "scheduled.json");
+  const store = new ScheduledMessageStore(filePath, logger);
+  const created = await store.add({
+    channelId: "channel",
+    channelName: "general",
+    message: "hello later",
+    targetUsers: [{ userId: "user", username: "makan" }],
+    runDate: "2026-04-01",
+    runTime: "09:00",
+    repeat: "none",
+    nextRunAt: new Date("2026-04-01T13:00:00.000Z"),
+    createdByUserId: "creator",
+    createdByUsername: "friend",
+  }, new Date("2026-03-01T00:00:00.000Z"));
+  assert.match(created.id, /^sm_[0-9a-f]{8}$/);
+  assert.equal((await store.listDue(new Date("2026-04-01T13:00:00.000Z"))).length, 1);
+  await store.markSent(created.id, undefined, new Date("2026-04-01T13:00:00.000Z"));
+  assert.deepEqual(await store.listDue(new Date("2027-01-01T00:00:00.000Z")), []);
+
+  await writeFile(filePath, JSON.stringify({ messages: [{ bad: true }, created] }));
+  assert.equal((await store.listDue(new Date("2026-04-01T13:00:00.000Z"))).length, 1);
+  await writeFile(filePath, "not json");
+  await assert.rejects(() => store.listDue(), /must contain valid JSON/);
+});
+
 /** Creates one test-owned directory and removes it after the test. */
 async function tempDirectory(context: test.TestContext): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "ben-phase-6-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "ben-migration-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }

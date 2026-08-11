@@ -15,6 +15,7 @@ export type DiscordChannel = {
   id: string;
   name?: string;
   guildId?: string;
+  sendable?: boolean;
 };
 
 /** Normalized Discord message event delivered to the input adapter. */

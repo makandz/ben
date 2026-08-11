@@ -209,6 +209,7 @@ function toUser(user: { id: string; username: string; bot: boolean }): DiscordUs
 function toChannel(channel: {
   id: string;
   isDMBased(): boolean;
+  isSendable(): boolean;
   name?: string | null;
   guildId?: string;
 }): DiscordChannel {
@@ -216,6 +217,7 @@ function toChannel(channel: {
   const guildId = channel.isDMBased() ? undefined : channel.guildId;
   return {
     id: channel.id,
+    sendable: channel.isSendable(),
     ...(name === undefined ? {} : { name }),
     ...(guildId === undefined ? {} : { guildId }),
   };

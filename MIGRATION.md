@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 6 — completed; Phase 7 not started
+- Current phase: Phase 7 — completed; Phase 8 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–6 only)
+- Replacement implementation: `src-next` (Phases 1–7 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -284,17 +284,17 @@ check.
 - [x] Remember a verified user and reject empty, duplicate, or unresolved people.
 - [x] Send to a uniquely resolved server channel and report failures.
 - [x] Add successful cross-channel bot output to recent context.
-- [ ] Schedule messages for verified users with validated content, destination, creator, and time.
-- [ ] Reject broadcast targets, unresolved users, past dates, and invalid repeats.
-- [ ] Return useful model-readable results for all tool successes and failures.
+- [x] Schedule messages for verified users with validated content, destination, creator, and time.
+- [x] Reject broadcast targets, unresolved users, past dates, and invalid repeats.
+- [x] Return useful model-readable results for all tool successes and failures.
 
 ### Scheduling
 
-- [ ] Preserve one-time, daily, and weekly schedule data.
-- [ ] Interpret dates in the bot timezone and calculate recurrence correctly.
-- [ ] Deliver safe target pings, complete one-time schedules, and advance recurring schedules.
-- [ ] Skip recurring occurrences missed before startup and find the next future run.
-- [ ] Retain failed schedules, increment failures, and log creation/delivery/failure.
+- [x] Preserve one-time, daily, and weekly schedule data.
+- [x] Interpret dates in the bot timezone and calculate recurrence correctly.
+- [x] Deliver safe target pings, complete one-time schedules, and advance recurring schedules.
+- [x] Skip recurring occurrences missed before startup and find the next future run.
+- [x] Retain failed schedules, increment failures, and log creation/delivery/failure.
 
 ### Persistence, usage, and internal status
 
@@ -498,12 +498,30 @@ orchestrator code.
 
 ### Phase 7 — Scheduled messages
 
-Status: Not started
+Status: Complete
 
-- [ ] Port the scheduled store, scheduler, target resolution, and delivery.
-- [ ] Implement the scheduled-message tool.
-- [ ] Preserve one-time, recurring, missed-run, logging, and failure behavior.
-- [ ] Test existing shapes, recurrence, missed schedules, failure accounting, and validation.
+- [x] Port the scheduled store, scheduler, target resolution, and delivery.
+- [x] Implement the scheduled-message tool.
+- [x] Preserve one-time, recurring, missed-run, logging, and failure behavior.
+- [x] Test existing shapes, recurrence, missed schedules, failure accounting, and validation.
+
+Completed on 2026-08-10:
+
+- `ScheduledMessageStore` reads and atomically writes the production JSON shape, preserves optional
+  run/failure fields, completes one-time schedules, advances recurring schedules, and retains due
+  schedules while incrementing delivery failures.
+- `ScheduledMessageScheduler` uses local interval/timezone constants, prevents overlapping passes,
+  delivers overdue one-time messages on startup, skips missed recurring occurrences to the first
+  future wall-clock run, and contains optional operational-log failures.
+- The generic `create_scheduled_message` tool validates content, creator, destination, bot-local
+  future time, repeat values, and real non-bot targets; it resolves only unique server users and
+  channels and returns model-readable results without orchestrator or model-adapter changes.
+- Scheduled Discord delivery constructs pings only from stored verified IDs, escapes broadcasts and
+  raw user tags in message text, and uses an explicit user-mention policy. `BotSession` exposes the
+  instigating user only while the active model turn can invoke tools.
+- Ten Phase 7 tests bring the replacement suite to 78 passing tests. Production build and
+  replacement type-check pass. `pnpm lint` remains unavailable because the local `eslint` binary
+  is missing; no dependency was installed or changed.
 
 Done when existing schedules retain their intended next run and tests use no live state or Discord.
 

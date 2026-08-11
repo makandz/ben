@@ -304,3 +304,29 @@ test("rejects invalid timing overrides", () => {
     /idleSleepMs must be a non-negative finite number/,
   );
 });
+
+test("exposes the instigating user only while the model can invoke tools", async (t) => {
+  const creators: unknown[] = [];
+  let session!: BotSession;
+  const orchestrator = {
+    async run(): Promise<ConversationOutcome> {
+      creators.push(session.getActiveCreator());
+      return wait();
+    },
+  };
+  session = new BotSession(
+    "system instructions",
+    orchestrator,
+    new RecordingTransport(),
+    new RecordingPresence(),
+    quietLogger,
+    fastTimings,
+  );
+  t.after(() => session.stop());
+
+  session.handleMessage(message("schedule-this", "channel-a", "Makan"), true);
+  await until(() => creators.length === 1);
+  await until(() => session.getActiveCreator() === undefined);
+
+  assert.deepEqual(creators, [{ userId: "makan", username: "Makan" }]);
+});
