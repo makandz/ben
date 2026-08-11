@@ -1,12 +1,9 @@
 import type { ChatTransport } from "../app/ChatTransport.js";
 
-/** Text message captured by `RecordingTransport`. */
 export type RecordedMessage = { channelId: string; text: string };
 
-/** Message reaction captured by `RecordingTransport`. */
 export type RecordedReaction = { channelId: string; messageId: string; emoji: string };
 
-/** Operational status captured by `RecordingTransport`. */
 export type RecordedStatus = {
   message: string;
   details: Readonly<Record<string, unknown>> | undefined;

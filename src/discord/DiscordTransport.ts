@@ -33,6 +33,7 @@ export class DiscordTransport implements ChatTransport {
    * @param channelId - Destination Discord channel identifier.
    * @param text - Message text to send.
    * @returns A promise that resolves after delivery.
+   * @throws When the destination channel cannot be found or is not sendable.
    */
   async sendMessage(channelId: string, text: string): Promise<void> {
     const channel = await this.gateway.fetchChannel(channelId);

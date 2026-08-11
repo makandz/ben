@@ -14,12 +14,6 @@ export type ModelTurn = {
 };
 
 export type Model = {
-  /**
-   * Performs one model interaction.
-   *
-   * @param request - The provider-neutral request to translate and execute.
-   * @returns The provider's response translated into portable conversation items.
-   */
   invoke(request: ModelRequest): Promise<ModelTurn>;
 };
 

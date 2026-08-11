@@ -13,6 +13,8 @@ export class ConversationSummaryStore {
   private readonly updates = new UpdateQueue();
 
   /**
+   * Creates a store over a production-compatible conversation-summary file.
+   *
    * @param filePath - JSON file compatible with the production summary store.
    * @param logger - Logger used for contained read failures.
    */
@@ -21,7 +23,11 @@ export class ConversationSummaryStore {
     private readonly logger: Pick<Logger, "warn">,
   ) {}
 
-  /** @returns Up to five valid summaries in stored order. */
+  /**
+   * Lists the valid summaries retained for future prompt context.
+   *
+   * @returns Up to five valid summaries in stored order.
+   */
   async list(): Promise<ConversationSummary[]> {
     return this.readSummaries();
   }
@@ -32,6 +38,7 @@ export class ConversationSummaryStore {
    * @param summary - Model-authored sleep summary.
    * @param now - Sleep time, replaceable for deterministic tests.
    * @returns The summaries remaining after the bounded append.
+   * @throws When `summary` is empty after trimming.
    */
   async add(summary: string, now = new Date()): Promise<ConversationSummary[]> {
     const trimmed = summary.trim();

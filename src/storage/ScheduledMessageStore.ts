@@ -51,6 +51,8 @@ export class ScheduledMessageStore {
   private readonly updates = new UpdateQueue();
 
   /**
+   * Creates a store over a production-compatible scheduled-message file.
+   *
    * @param filePath - JSON file using the production-compatible scheduled-message shape.
    * @param logger - Logger used when malformed individual entries are ignored.
    */
@@ -94,6 +96,8 @@ export class ScheduledMessageStore {
   }
 
   /**
+   * Lists enabled schedules that are ready for delivery.
+   *
    * @param now - Inclusive due-time boundary.
    * @returns Enabled schedules whose next run is at or before the boundary.
    */

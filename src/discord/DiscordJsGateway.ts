@@ -143,6 +143,7 @@ export class DiscordJsGateway implements DiscordGateway {
    * @param content - Final message content.
    * @param options - Whether verified user mention tags may notify users.
    * @returns A promise that resolves after delivery.
+   * @throws When the destination channel is not sendable.
    */
   async sendMessage(
     channelId: string,
@@ -164,6 +165,7 @@ export class DiscordJsGateway implements DiscordGateway {
    *
    * @param channelId - Destination Discord channel identifier.
    * @returns A promise that resolves after the indicator is sent.
+   * @throws When the destination channel is not sendable.
    */
   async sendTyping(channelId: string): Promise<void> {
     const channel = await this.client.channels.fetch(channelId);
@@ -180,6 +182,7 @@ export class DiscordJsGateway implements DiscordGateway {
    * @param messageId - Target Discord message identifier.
    * @param emoji - Unicode emoji to apply.
    * @returns A promise that resolves after Discord applies the reaction.
+   * @throws When the destination channel is not text-based.
    */
   async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
     const channel = await this.client.channels.fetch(channelId);

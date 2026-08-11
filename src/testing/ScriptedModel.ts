@@ -1,5 +1,6 @@
 import type { Model, ModelRequest, ModelTurn } from "../model/Model.js";
 
+/** Deterministic model implementation that returns prearranged turns for tests. */
 export class ScriptedModel implements Model {
   readonly requests: ModelRequest[] = [];
 
@@ -15,6 +16,7 @@ export class ScriptedModel implements Model {
    *
    * @param request - Provider-neutral request made by the orchestrator.
    * @returns The next predetermined model turn.
+   * @throws When no scripted turn remains.
    */
   async invoke(request: ModelRequest): Promise<ModelTurn> {
     this.requests.push(request);

@@ -41,6 +41,7 @@ export class OpenAIModel implements Model {
    * @param options - Provider credential and optional local request overrides.
    * @param usageStore - Shared usage persistence and budget boundary.
    * @param responses - Optional owned client seam used by tests.
+   * @throws When the model lacks configured pricing or `maxOutputTokens` is invalid.
    */
   constructor(
     options: OpenAIModelOptions,
@@ -62,6 +63,7 @@ export class OpenAIModel implements Model {
    *
    * @param request - Provider-neutral request to translate and execute.
    * @returns The provider response translated into a portable model turn.
+   * @throws When the configured daily model budget has been exhausted.
    */
   async invoke(request: ModelRequest): Promise<ModelTurn> {
     const budget = await this.usageStore.getBudgetStatus();
@@ -79,7 +81,7 @@ export class OpenAIModel implements Model {
         ? {}
         : { tools, tool_choice: "required" as const, parallel_tool_calls: false }),
       max_output_tokens: this.maxOutputTokens,
-      reasoning: { effort: "low", summary: "concise" },
+      reasoning: { effort: "medium", summary: "concise" },
       include: ["reasoning.encrypted_content"],
       store: false,
     });

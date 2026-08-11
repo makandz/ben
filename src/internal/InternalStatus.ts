@@ -41,6 +41,7 @@ export type InternalStatus = z.infer<typeof internalStatusSchema>;
  *
  * @param text - Raw assistant response text.
  * @returns A normalized valid status.
+ * @throws When the response is not valid JSON or does not satisfy the status schema.
  */
 export function parseInternalStatusPayload(text: string): InternalStatus {
   let parsed: unknown;

@@ -12,6 +12,8 @@ export type InternalActionResult =
 /** Runs status generation through the shared provider-neutral model boundary. */
 export class InternalActionRunner {
   /**
+   * Creates a runner for model-authored internal status actions.
+   *
    * @param model - Shared provider-neutral model boundary.
    * @param logger - Structured internal-action logger.
    * @param logPrompts - Whether full internal instructions may be logged.
@@ -24,7 +26,11 @@ export class InternalActionRunner {
     private readonly promptPath: URL = new URL("../prompts/internal/status.txt", import.meta.url),
   ) {}
 
-  /** @returns A validated status or a controlled budget/failure result. */
+  /**
+   * Runs one status-generation action and contains expected model failures.
+   *
+   * @returns A validated status or a controlled budget or failure result.
+   */
   async runStatusAction(): Promise<InternalActionResult> {
     try {
       const instructions = await readFile(this.promptPath, "utf8");

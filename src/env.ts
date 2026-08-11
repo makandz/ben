@@ -16,6 +16,7 @@ const logLevels = new Set<LogLevel>(["debug", "info", "warn", "error"]);
  *
  * @param source - Environment values, defaulting to the current process environment.
  * @returns Validated application configuration.
+ * @throws When a required value is missing or a configured value is invalid.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   return {

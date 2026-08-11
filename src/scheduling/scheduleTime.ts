@@ -75,6 +75,7 @@ export function validateRunTime(runTime: string): boolean {
  *
  * @param input - Local date, time, and timezone.
  * @returns The matching absolute instant.
+ * @throws When the date, time, or timezone is invalid, or the local time does not exist.
  */
 export function localScheduleToDate(input: ScheduledLocalTime): Date {
   if (!validateRunDate(input.runDate)) {
@@ -124,6 +125,7 @@ export function localScheduleToDate(input: ScheduledLocalTime): Date {
  * @param repeat - Recurrence rule to apply.
  * @param timeZone - IANA timezone used by the schedule.
  * @returns The next occurrence, or undefined for a one-time schedule.
+ * @throws When the timezone is invalid or the next local occurrence does not exist.
  */
 export function computeNextRunAt(
   lastRunAt: Date,
@@ -153,6 +155,7 @@ export function computeNextRunAt(
  * @param now - Instant to format.
  * @param timeZone - IANA timezone used by the bot.
  * @returns A human-readable date and time with timezone name.
+ * @throws When `timeZone` is not a valid IANA timezone.
  */
 export function formatBotTime(now: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-US", {

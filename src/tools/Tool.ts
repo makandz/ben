@@ -20,12 +20,5 @@ export type TerminalToolOutcome =
 
 export type Tool = {
   definition: ToolDefinition;
-
-  /**
-   * Validates and executes a model tool call.
-   *
-   * @param call - Portable tool call produced by a model.
-   * @returns A result that either continues or finishes the conversation.
-   */
   execute(call: ToolCall): Promise<ToolResult>;
 };

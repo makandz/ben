@@ -1,5 +1,6 @@
 import type { Tool, ToolDefinition } from "./Tool.js";
 
+/** Stores uniquely named tools and exposes their model-facing definitions. */
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
 
@@ -18,6 +19,7 @@ export class ToolRegistry {
    * Registers a uniquely named tool.
    *
    * @param tool - Tool to expose to the orchestrator and model.
+   * @throws When another tool with the same name is already registered.
    */
   register(tool: Tool): void {
     if (this.tools.has(tool.definition.name)) {

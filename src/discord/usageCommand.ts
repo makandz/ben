@@ -54,10 +54,12 @@ export function formatUsageSummary(summary: UsageSummary): string {
   return `${formatInteger(summary.inputTokens)}/${formatInteger(summary.cachedInputTokens)}/${formatInteger(summary.outputTokens)} (input/cached/output) - ${formatUsd(summary.costUsd)} (${formatUsagePercent(summary)}) - ${summary.model}`;
 }
 
+/** Formats an integer with locale-appropriate grouping separators. */
 function formatInteger(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/** Formats the share of the daily budget consumed, or `n/a` when budgeting is disabled. */
 function formatUsagePercent(summary: UsageSummary): string {
   return summary.budgetUsd <= 0
     ? "n/a"

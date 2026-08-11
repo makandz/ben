@@ -38,6 +38,7 @@ export const modelPricing: Readonly<Record<string, ModelPricing>> = {
  *
  * @param model - Exact model identifier.
  * @returns Pricing for one million tokens.
+ * @throws When pricing has not been configured for the model.
  */
 export function getModelPricing(model: string): ModelPricing {
   const pricing = modelPricing[model];

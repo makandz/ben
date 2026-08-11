@@ -14,6 +14,8 @@ export class KnownPeopleStore {
   private readonly updates = new UpdateQueue();
 
   /**
+   * Creates a store over a production-compatible known-people file.
+   *
    * @param filePath - JSON file compatible with the production known-people store.
    * @param logger - Logger used when malformed entries are ignored.
    */
@@ -22,7 +24,11 @@ export class KnownPeopleStore {
     private readonly logger: Pick<Logger, "warn">,
   ) {}
 
-  /** @returns A case-insensitive username map suitable for prompt formatting. */
+  /**
+   * Lists remembered people for insertion into model prompts.
+   *
+   * @returns A case-insensitive username map suitable for prompt formatting.
+   */
   async listForPrompt(): Promise<KnownPeople> {
     const knownPeople: Record<string, { name: string }> = {};
     for (const person of Object.values((await this.read()).people)) {

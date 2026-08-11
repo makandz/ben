@@ -14,30 +14,16 @@ const SLEEPING_CONTEXT_LIMIT = 5;
 
 type SessionMode = "sleeping" | "awake" | "processing";
 
-/** Optional session timing values used to replace local production defaults in tests. */
 export type BotSessionTimingOverrides = {
-  /** Quiet time after the latest message before processing begins. */
   messageDebounceMs?: number;
-  /** Quiet time after human typing activity before processing begins. */
   typingDebounceMs?: number;
-  /** Awake inactivity period before the session returns to sleep. */
   idleSleepMs?: number;
-  /** Interval between typing-indicator refreshes during model work. */
   typingRefreshMs?: number;
 };
 
 type SessionTimings = Required<BotSessionTimingOverrides>;
 
-/** Narrow conversation-running contract consumed by the session state machine. */
 export type ConversationRunner = {
-  /**
-   * Runs one provider-neutral conversation turn.
-   *
-   * @param instructions - Stable model instructions.
-   * @param history - Portable history retained while the session is awake.
-   * @param userText - Model-ready user prompt for the current message batch.
-   * @returns The terminal conversation outcome for the session to apply.
-   */
   run(
     instructions: string,
     history: readonly ConversationItem[],
@@ -50,29 +36,18 @@ export type ActiveConversationUser = {
   username: string;
 };
 
-/** Persistence capabilities used at wake, prompt-build, and sleep boundaries. */
 export type BotSessionPersistence = {
   summaries?: {
-    /** @returns Saved conversation summaries in prompt order. */
     list(): Promise<readonly { summary: string }[]>;
-    /**
-     * Persists a completed conversation summary.
-     *
-     * @param summary - Required model-authored summary produced before sleep.
-     * @returns A promise that resolves after persistence completes.
-     */
     add(summary: string): Promise<unknown>;
   };
   knownPeople?: {
-    /** @returns Known Discord users keyed by normalized username for prompt formatting. */
     listForPrompt(): Promise<KnownPeople>;
   };
 };
 
 export type BotSessionPromptContext = {
-  /** @returns The current custom activity shown on Discord, when available. */
   getCurrentActivityStatus?(): string | undefined;
-  /** @returns A formatted current bot-local time for scheduling context. */
   getCurrentBotTime?(): string | undefined;
 };
 
@@ -120,6 +95,7 @@ export class BotSession {
    * @param logger - Structured application logger.
    * @param timingOverrides - Narrow timer overrides intended for behavior tests.
    * @param persistence - Optional summary and known-people persistence capabilities.
+   * @param promptContext - Optional dynamic activity and local-time prompt values.
    * @throws When a timing override is negative or not finite.
    */
   constructor(
@@ -206,12 +182,20 @@ export class BotSession {
     this.clearTimers();
   }
 
-  /** @returns The active Discord channel, or undefined while sleeping. */
+  /**
+   * Returns the channel containing the active conversation.
+   *
+   * @returns The active Discord channel, or undefined while sleeping.
+   */
   getActiveChannelId(): string | undefined {
     return this.activeChannelId;
   }
 
-  /** @returns The first human in the batch currently invoking tools, if any. */
+  /**
+   * Returns the human whose message initiated the current model turn.
+   *
+   * @returns The first human in the batch currently invoking tools, if any.
+   */
   getActiveCreator(): ActiveConversationUser | undefined {
     return this.activeCreator === undefined ? undefined : { ...this.activeCreator };
   }

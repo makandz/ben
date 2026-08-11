@@ -56,6 +56,7 @@ export class OpenAIUsageStore {
    * @param summaryModel - Model name displayed by daily usage summaries.
    * @param budgetUsd - Shared daily limit, or zero for unlimited usage.
    * @param logger - Narrow warning logger used for read failures.
+   * @throws When the model lacks configured pricing or the budget is invalid.
    */
   constructor(
     private readonly directory: string,

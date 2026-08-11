@@ -10,6 +10,8 @@ export class InternalStateStore {
   private readonly updates = new UpdateQueue();
 
   /**
+   * Creates a store over a production-compatible internal-state file.
+   *
    * @param filePath - Production-compatible internal-state JSON path.
    * @param logger - Logger for contained read and validation failures.
    */
@@ -18,7 +20,11 @@ export class InternalStateStore {
     private readonly logger: Pick<Logger, "warn">,
   ) {}
 
-  /** @returns The valid current status, or undefined for missing/malformed state. */
+  /**
+   * Reads the current persisted status while containing file and validation failures.
+   *
+   * @returns The valid current status, or undefined for missing or malformed state.
+   */
   async readCurrentStatus(): Promise<InternalStatusState | undefined> {
     const current = (await this.read()).statuses?.current;
     return current === undefined ? undefined : parseState(current);
@@ -41,6 +47,7 @@ export class InternalStateStore {
     });
   }
 
+  /** Reads the compatible state object while containing missing, malformed, or unreadable files. */
   private async read(): Promise<InternalStateFile> {
     try {
       const parsed = await readJsonFile(this.filePath);
@@ -71,6 +78,7 @@ export function isFreshStatusState(
   return Number.isFinite(setAt) && now.getTime() - setAt < intervalMs;
 }
 
+/** Parses one persisted current-status value. */
 function parseState(value: unknown): InternalStatusState | undefined {
   if (!isRecord(value) || value.action !== "status" || typeof value.setAt !== "string")
     return undefined;

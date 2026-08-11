@@ -4,6 +4,7 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 
 const DEFAULT_MAX_TOOL_ITERATIONS = 5;
 
+/** Coordinates model turns and tool execution until a conversation reaches a terminal outcome. */
 export class ConversationOrchestrator {
   /**
    * Creates an orchestrator over one model and the available tools.
@@ -11,6 +12,7 @@ export class ConversationOrchestrator {
    * @param model - Provider-neutral model implementation.
    * @param tools - Registry of conversation controls and capabilities.
    * @param maxToolIterations - Maximum model requests during one application turn.
+   * @throws When `maxToolIterations` is not a positive integer.
    */
   constructor(
     private readonly model: Model,

@@ -3,30 +3,10 @@ import type { Logger } from "../logger.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "./DiscordDirectory.js";
 import type { DiscordGateway, DiscordMessageEvent, DiscordTypingEvent } from "./DiscordGateway.js";
 
-/** Application callbacks for normalized Discord input. */
 export type DiscordInputHandlers = {
-  /**
-   * Receives a normalized human message and direct-ping state.
-   *
-   * @param message - Provider-neutral human message.
-   * @param pinged - Whether the message directly mentioned Ben.
-   */
   handleMessage(message: HumanMessage, pinged: boolean): void;
-  /**
-   * Receives normalized human typing activity.
-   *
-   * @param channelId - Channel containing the typing activity.
-   * @param userId - Typing user's Discord identifier.
-   * @param username - Typing user's Discord username.
-   */
   handleTyping(channelId: string, userId: string, username: string): void;
-  /**
-   * Receives the bot username when the Discord client becomes ready.
-   *
-   * @param username - Ready bot username.
-   */
   handleReady?(username: string): void;
-  /** Receives normalized Discord application commands. */
   handleCommand?(
     name: string,
     reply: (content: string | { content: string; ephemeral: boolean }) => Promise<void>,

@@ -28,6 +28,8 @@ export class ScheduledMessageScheduler {
   private startedAt: Date | undefined;
 
   /**
+   * Creates a scheduler over persistent message delivery capabilities.
+   *
    * @param store - Persistent schedule operations.
    * @param deliver - Discord delivery capability.
    * @param logStatus - Operational schedule log destination.

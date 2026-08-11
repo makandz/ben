@@ -23,12 +23,15 @@ export class InternalActionScheduler {
   private availability: "idle" | "online" = "idle";
 
   /**
+   * Creates a scheduler that refreshes and publishes Ben's activity status.
+   *
    * @param runner - Controlled internal action capability.
    * @param stateStore - Compatible status persistence operations.
    * @param presence - Underlying platform presence transport.
    * @param transport - Operational status destination.
    * @param logger - Structured scheduler logger.
    * @param options - Narrow interval and clock overrides.
+   * @throws When the configured refresh interval is not positive and finite.
    */
   constructor(
     private readonly runner: Pick<InternalActionRunner, "runStatusAction">,
@@ -48,7 +51,11 @@ export class InternalActionScheduler {
     }
   }
 
-  /** @returns A promise that resolves after status initialization and scheduling. */
+  /**
+   * Initializes status state and schedules future refreshes.
+   *
+   * @returns A promise that resolves after status initialization and scheduling.
+   */
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
@@ -77,7 +84,11 @@ export class InternalActionScheduler {
     this.started = false;
   }
 
-  /** @returns The formatted current custom activity. */
+  /**
+   * Returns the currently applied custom activity text.
+   *
+   * @returns The formatted current custom activity, or undefined before initialization.
+   */
   getCurrentActivityStatus(): string | undefined {
     return this.currentStatus === undefined ? undefined : formatActivityStatus(this.currentStatus);
   }
@@ -106,6 +117,7 @@ export class InternalActionScheduler {
     this.setAwakePresence(presence.status === "online");
   }
 
+  /** Schedules the next refresh when the scheduler remains active. */
   private schedule(delay: number): void {
     if (!this.started) return;
     this.timer = setTimeout(() => {
@@ -151,6 +163,7 @@ export class InternalActionScheduler {
     }
   }
 
+  /** Updates the current status and immediately publishes the resulting presence. */
   private applyStatus(status: InternalStatus): void {
     this.currentStatus = status;
     this.presence.setPresence({
@@ -159,6 +172,7 @@ export class InternalActionScheduler {
     });
   }
 
+  /** Writes an operational message while containing delivery failures. */
   private async writeLog(text: string): Promise<void> {
     await this.transport.logStatus(text).catch((error: unknown) => {
       this.logger.warn("internal.log_send_failed", { error: String(error) });
@@ -166,10 +180,12 @@ export class InternalActionScheduler {
   }
 }
 
+/** Compares the user-visible fields of two activity statuses. */
 function sameStatus(left: InternalStatus | undefined, right: InternalStatus): boolean {
   return left?.emoji === right.emoji && left.text === right.text;
 }
 
+/** Removes simple Discord bold markup from model-authored reasoning text. */
 function stripBoldMarkdown(text: string): string {
   return text
     .replace(/\*\*([^*\n]+)\*\*/g, "$1")
