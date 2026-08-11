@@ -53,7 +53,7 @@ Supported repeats are one-time, daily, and weekly. Monthly schedules are intenti
 
 The bot can run separate scheduled internal actions using their own prompt files under `src/prompts/internal/`.
 
-The first internal action runs once on startup and then every 24 hours by default. It asks `gpt-5.4-nano` to choose Ben's Discord activity status, then applies that status and optionally writes a log line like:
+The first internal action runs once on startup and then every 24 hours by default. It asks `gpt-5.6-luna` to choose Ben's Discord activity status, then applies that status and optionally writes a log line like:
 
 ```text
 > 🧠 thinking quietly
@@ -69,8 +69,8 @@ The last status is stored in a separate JSON file at `logs/internal-state.json` 
 
 ## Configuration
 
-- `OPENAI_MODEL` defaults to `gpt-5.4-mini`.
-- `OPENAI_INTERNAL_MODEL` defaults to `gpt-5.4-nano`.
+- `OPENAI_MODEL` defaults to `gpt-5.6-luna`.
+- `OPENAI_INTERNAL_MODEL` defaults to `gpt-5.6-luna`.
 - `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
 - `OPENAI_USAGE_LOG_DIR` defaults to `logs/openai-usage`. Usage is stored in monthly `YYMM.json` files with daily buckets.
 - `BOT_INTERNAL_STATE_PATH` defaults to `logs/internal-state.json`. Internal action state is stored separately from usage.

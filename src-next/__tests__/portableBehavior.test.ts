@@ -29,10 +29,10 @@ test("validates one emoji grapheme", () => {
 });
 
 test("resolves established model pricing and rejects unknown models", () => {
-  assert.deepEqual(getModelPricing("gpt-5.4-mini"), {
-    inputUsdPer1M: 0.75,
-    cachedInputUsdPer1M: 0.075,
-    outputUsdPer1M: 4.5,
+  assert.deepEqual(getModelPricing("gpt-5.6-luna"), {
+    inputUsdPer1M: 0.2,
+    cachedInputUsdPer1M: 0.02,
+    outputUsdPer1M: 1.2,
   });
   assert.throws(() => getModelPricing("unknown"), /No OpenAI pricing configured/);
 });

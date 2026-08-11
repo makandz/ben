@@ -33,7 +33,7 @@ test("makes one configured request, maps its turn, and records usage", async (co
 
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0], {
-    model: "gpt-5.4-mini",
+    model: "gpt-5.6-luna",
     instructions: "Be Ben.",
     input: [{ type: "message", role: "user", content: "hello" }],
     tools: [{

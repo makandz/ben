@@ -68,8 +68,8 @@ export function loadConfig(): AppConfig {
   return {
     discordToken: requireEnv("DISCORD_TOKEN"),
     openaiApiKey: requireEnv("OPENAI_API_KEY"),
-    openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
-    openaiInternalModel: process.env.OPENAI_INTERNAL_MODEL ?? "gpt-5.4-nano",
+    openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
+    openaiInternalModel: process.env.OPENAI_INTERNAL_MODEL ?? "gpt-5.6-luna",
     openaiDailyBudgetUsd: readNumberEnv("OPENAI_DAILY_BUDGET_USD", 0),
     openaiUsageLogDir: process.env.OPENAI_USAGE_LOG_DIR ?? "logs/openai-usage",
     internalStatePath:

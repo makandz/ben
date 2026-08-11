@@ -11,8 +11,8 @@ import { getModelPricing } from "../pricing.js";
 import { OpenAIMapper } from "./OpenAIMapper.js";
 import { OpenAIUsageStore } from "./OpenAIUsageStore.js";
 
-export const OPENAI_CONVERSATION_MODEL = "gpt-5.4-mini";
-export const OPENAI_INTERNAL_MODEL = "gpt-5.4-nano";
+export const OPENAI_CONVERSATION_MODEL = "gpt-5.6-luna";
+export const OPENAI_INTERNAL_MODEL = "gpt-5.6-luna";
 const MAX_OUTPUT_TOKENS = 512;
 
 type ResponsesClient = {
