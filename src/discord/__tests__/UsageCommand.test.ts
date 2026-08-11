@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatUsageSummary, handleUsageCommand, registerUsageCommand } from "../UsageCommand.js";
+import { formatUsageSummary, handleUsageCommand, registerUsageCommand } from "../usageCommand.js";
 
 const summary = {
   day: "260810",
