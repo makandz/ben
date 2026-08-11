@@ -1,5 +1,5 @@
 import type { Logger } from "../logger.js";
-import { buildUserPrompt } from "../prompts/formatMessages.js";
+import { buildUserPrompt, type KnownPeople } from "../prompts/formatMessages.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "./types.js";
@@ -43,6 +43,25 @@ export type ConversationRunner = {
   ): Promise<ConversationOutcome>;
 };
 
+/** Persistence capabilities used at wake, prompt-build, and sleep boundaries. */
+export type BotSessionPersistence = {
+  summaries?: {
+    /** @returns Saved conversation summaries in prompt order. */
+    list(): Promise<readonly { summary: string }[]>;
+    /**
+     * Persists a completed conversation summary.
+     *
+     * @param summary - Required model-authored summary produced before sleep.
+     * @returns A promise that resolves after persistence completes.
+     */
+    add(summary: string): Promise<unknown>;
+  };
+  knownPeople?: {
+    /** @returns Known Discord users keyed by normalized username for prompt formatting. */
+    listForPrompt(): Promise<KnownPeople>;
+  };
+};
+
 type TypingActivity = { expiresAt: number };
 
 type QueuedWake = {
@@ -74,6 +93,7 @@ export class BotSession {
   private debounceTimer: NodeJS.Timeout | undefined;
   private idleTimer: NodeJS.Timeout | undefined;
   private typingTimer: NodeJS.Timeout | undefined;
+  private botMessageSequence = 0;
 
   /**
    * Creates the application session state machine.
@@ -84,6 +104,7 @@ export class BotSession {
    * @param presence - Availability output capability.
    * @param logger - Structured application logger.
    * @param timingOverrides - Narrow timer overrides intended for behavior tests.
+   * @param persistence - Optional summary and known-people persistence capabilities.
    * @throws When a timing override is negative or not finite.
    */
   constructor(
@@ -93,6 +114,7 @@ export class BotSession {
     private readonly presence: PresenceTransport,
     private readonly logger: Pick<Logger, "debug" | "info" | "warn">,
     timingOverrides: BotSessionTimingOverrides = {},
+    private readonly persistence: BotSessionPersistence = {},
   ) {
     this.timings = { ...productionTimings, ...timingOverrides };
 
@@ -166,6 +188,32 @@ export class BotSession {
   /** Releases timers when application composition shuts down. */
   stop(): void {
     this.clearTimers();
+  }
+
+  /** @returns The active Discord channel, or undefined while sleeping. */
+  getActiveChannelId(): string | undefined {
+    return this.activeChannelId;
+  }
+
+  /**
+   * Adds successful bot output to a channel's bounded recent context.
+   *
+   * @param channelId - Channel that received the bot message.
+   * @param content - Delivered message content.
+   */
+  recordBotMessage(channelId: string, content: string): void {
+    this.botMessageSequence += 1;
+    const message: HumanMessage = {
+      id: `ben:${String(Date.now())}:${String(this.botMessageSequence)}`,
+      channelId,
+      userId: "ben",
+      username: "Ben",
+      content,
+      createdAt: Date.now(),
+    };
+    this.rememberMessage(message);
+    const queued = this.queuedWakes.find((wake) => wake.channelId === channelId);
+    if (queued !== undefined) queued.messages.push(message);
   }
 
   /** Starts a conversation from a ping or promoted queued wake. */
@@ -255,10 +303,24 @@ export class BotSession {
     this.mode = "processing";
 
     const stopTyping = this.startTyping(channelId);
+    const includeFirstPromptContext = this.history.length === 0;
+    const knownPeople = await this.persistence.knownPeople?.listForPrompt().catch((error: unknown) => {
+      this.logger.warn("known_people.read_failed", { error: String(error) });
+      return {};
+    }) ?? {};
+    const recentConversationSummaries = includeFirstPromptContext
+      ? await this.persistence.summaries?.list().catch((error: unknown) => {
+          this.logger.warn("conversation_summaries.read_failed", { error: String(error) });
+          return [];
+        }) ?? []
+      : [];
     const prompt = buildUserPrompt({
       recentContext,
       messages,
-      ...(this.history.length === 0 && messages[0] !== undefined
+      knownPeople,
+      includeKnownPeople: includeFirstPromptContext,
+      recentConversationSummaries,
+      ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
         : {}),
     });
@@ -295,6 +357,9 @@ export class BotSession {
     messageId: string | undefined,
   ): Promise<void> {
     if (outcome.type === "sleep") {
+      await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
+        this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
+      });
       await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
       await this.deliverOptionalMessage(channelId, outcome.text);
       await this.logStatus("Going back to sleep", { channelId, summary: outcome.summary });

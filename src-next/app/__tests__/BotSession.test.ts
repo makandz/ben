@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BotSession } from "../BotSession.js";
+import { BotSession, type BotSessionPersistence } from "../BotSession.js";
 import type { ActivityPresence } from "../PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
 import { RecordingTransport } from "../../testing/RecordingTransport.js";
@@ -95,6 +95,7 @@ function createSession(
   transport = new RecordingTransport(),
   presence = new RecordingPresence(),
   timingOverrides: Partial<typeof fastTimings> = fastTimings,
+  persistence: BotSessionPersistence = {},
 ) {
   const session = new BotSession(
     "system instructions",
@@ -103,6 +104,7 @@ function createSession(
     presence,
     quietLogger,
     timingOverrides,
+    persistence,
   );
   return { session, transport, presence };
 }
@@ -241,6 +243,59 @@ test("idle sleep clears history before a later wake", async (t) => {
 
   assert.deepEqual(orchestrator.calls[1]?.history, []);
   assert.deepEqual(presence.values.map(({ status }) => status), ["online", "idle", "online"]);
+});
+
+test("loads persisted wake context, names speakers each turn, and saves the sleep summary", async (t) => {
+  const history: ConversationItem[] = [{ type: "message", role: "assistant", text: "awake" }];
+  const orchestrator = new ScriptedOrchestrator([
+    reply("hello", history),
+    { type: "sleep", summary: " Makan and Ben finished catching up. " },
+  ]);
+  const saved: string[] = [];
+  const persistence: BotSessionPersistence = {
+    summaries: {
+      async list() { return [{ summary: "The group planned dinner." }]; },
+      async add(summary) { saved.push(summary); },
+    },
+    knownPeople: {
+      async listForPrompt() { return { makan: { name: "Makan A." } }; },
+    },
+  };
+  const { session } = createSession(
+    orchestrator,
+    undefined,
+    undefined,
+    fastTimings,
+    persistence,
+  );
+  t.after(() => session.stop());
+
+  session.handleMessage(message("ping"), true);
+  await until(() => orchestrator.calls.length === 1);
+  session.handleMessage(message("done"), false);
+  await until(() => saved.length === 1);
+
+  const firstPrompt = orchestrator.calls[0]?.userText ?? "";
+  const secondPrompt = orchestrator.calls[1]?.userText ?? "";
+  assert.match(firstPrompt, /Known people:\n- makan is Makan A\./);
+  assert.match(firstPrompt, /Ben was pinged by Makan \(Makan A\.\)/);
+  assert.match(firstPrompt, /Recent conversations:\n- The group planned dinner\./);
+  assert.doesNotMatch(secondPrompt, /Known people:/);
+  assert.doesNotMatch(secondPrompt, /Recent conversations:/);
+  assert.match(secondPrompt, /Makan \(Makan A\.\): done/);
+  assert.deepEqual(saved, [" Makan and Ben finished catching up. "]);
+});
+
+test("includes successful recorded bot output in that channel's next wake context", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait()]);
+  const { session } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.recordBotMessage("channel-b", "cross-channel hello");
+  session.handleMessage(message("ping", "channel-b", "B"), true);
+  await until(() => orchestrator.calls.length === 1);
+
+  assert.match(orchestrator.calls[0]?.userText ?? "", /Recent context:\nBen: cross-channel hello/);
 });
 
 test("rejects invalid timing overrides", () => {

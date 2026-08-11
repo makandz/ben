@@ -6,9 +6,9 @@ feature parity and is deliberately cut over.
 
 ## Status
 
-- Current phase: Phase 5 — completed; Phase 6 not started
+- Current phase: Phase 6 — completed; Phase 7 not started
 - Production implementation: `src`
-- Replacement implementation: `src-next` (Phases 1–5 only)
+- Replacement implementation: `src-next` (Phases 1–6 only)
 - Strategy: parallel replacement, then one cutover
 
 Update this file with migration work. Keep one phase active at a time and record decisions that
@@ -267,7 +267,7 @@ check.
 - [ ] Wait while preserving memory; sleep while clearing memory and advancing queued wakes.
 - [ ] Return to sleep after idle timeout and update awake/idle presence.
 - [ ] Include pre-wake context, pinging user, summaries, known people, local time, and activity status.
-- [ ] Preserve model history while awake and save a required summary on sleep.
+- [x] Preserve model history while awake and save a required summary on sleep.
 
 ### Model and orchestration
 
@@ -281,9 +281,9 @@ check.
 
 ### Tools
 
-- [ ] Remember a verified user and reject empty, duplicate, or unresolved people.
-- [ ] Send to a uniquely resolved server channel and report failures.
-- [ ] Add successful cross-channel bot output to recent context.
+- [x] Remember a verified user and reject empty, duplicate, or unresolved people.
+- [x] Send to a uniquely resolved server channel and report failures.
+- [x] Add successful cross-channel bot output to recent context.
 - [ ] Schedule messages for verified users with validated content, destination, creator, and time.
 - [ ] Reject broadcast targets, unresolved users, past dates, and invalid repeats.
 - [ ] Return useful model-readable results for all tool successes and failures.
@@ -467,13 +467,31 @@ Done when session behavior runs completely with a scripted orchestrator and reco
 
 ### Phase 6 — Persistence and Discord tools
 
-Status: Not started
+Status: Complete
 
-- [ ] Port summary and known-people stores with current-shape compatibility tests.
-- [ ] Implement remember-person and cross-channel-message tools.
-- [ ] Connect summaries/people to prompt context at the correct lifecycle points.
-- [ ] Preserve atomic writes and successful cross-channel context updates.
-- [ ] Test validation, resolution, duplicates, ambiguity, and controlled failures.
+- [x] Port summary and known-people stores with current-shape compatibility tests.
+- [x] Implement remember-person and cross-channel-message tools.
+- [x] Connect summaries/people to prompt context at the correct lifecycle points.
+- [x] Preserve atomic writes and successful cross-channel context updates.
+- [x] Test validation, resolution, duplicates, ambiguity, and controlled failures.
+
+Completed on 2026-08-10:
+
+- `ConversationSummaryStore` and `KnownPeopleStore` read the production JSON shapes, retain their
+  existing malformed-data policies, and replace files atomically. Summaries remain bounded to the
+  newest five, while verified Discord IDs and normalized usernames both prevent duplicate people.
+- `BotSession` loads saved summaries and the stable known-people list on the first awake prompt,
+  keeps using known names on later turns, saves the required model summary before sleeping, and
+  contains persistence failures without breaking the conversation lifecycle.
+- Discord-backed `remember_person` and `send_message` tool factories validate their own arguments,
+  resolve only unique server members/channels, report controlled model-readable failures, and
+  register through the generic `ToolRegistry` without model or orchestrator changes.
+- `send_message` preserves the existing dual behavior: current-channel output is terminal and a
+  named cross-channel send continues the tool loop. Successful cross-channel output is added to
+  that channel's bounded recent context, including an already queued wake.
+- Twelve persistence, tool, and session lifecycle tests bring the replacement suite to 68 passing
+  tests. Production build and replacement type-check pass. `pnpm lint` remains unavailable because
+  the local `eslint` binary is missing; no dependency was installed or changed.
 
 Done when existing data remains readable and Discord tools register without edits to model or
 orchestrator code.
