@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ChatTransport } from "../../app/ChatTransport.js";
 import type {
   CreateScheduledMessageInput,
   ScheduledMessage,
@@ -94,57 +93,13 @@ test("remember-person controls empty, ambiguous, duplicate, and lookup failures"
 });
 
 test("send-message preserves terminal current-channel behavior", async () => {
-  const tool = createSendTool(new FakeGateway(), new FakeTransport(), () => undefined);
-  assert.deepEqual(await execute(tool, { text: " hello ", reaction: "👍", channel: null }), {
+  const tool = createSendTool();
+  assert.deepEqual(await execute(tool, { text: " hello " }), {
     type: "finish",
     result: { ok: true, pausedUntil: "new_human_message" },
-    outcome: { type: "reply", text: "hello", reaction: "👍" },
+    outcome: { type: "reply", text: "hello" },
   });
-  assert.match(
-    JSON.stringify(await execute(tool, { text: null, reaction: "no", channel: null })),
-    /exactly one/,
-  );
-});
-
-test("cross-channel send resolves uniquely and records successful bot context", async () => {
-  const gateway = new FakeGateway();
-  gateway.channels = [general, plans];
-  const transport = new FakeTransport();
-  const recorded: unknown[] = [];
-  const tool = createSendTool(gateway, transport, (...values) => recorded.push(values));
-
-  assert.deepEqual(
-    await execute(tool, { text: "see you there", reaction: null, channel: "#plans" }),
-    {
-      type: "continue",
-      result: { ok: true, channel: "plans", channelId: "plans" },
-    },
-  );
-  assert.deepEqual(transport.messages, [{ channelId: "plans", text: "see you there" }]);
-  assert.deepEqual(recorded, [["plans", "see you there"]]);
-});
-
-test("cross-channel send reports missing, ambiguous, and transport failures without context updates", async () => {
-  const gateway = new FakeGateway();
-  const transport = new FakeTransport();
-  const recorded: unknown[] = [];
-  const tool = createSendTool(gateway, transport, (...values) => recorded.push(values));
-  assert.match(
-    JSON.stringify(await execute(tool, { text: "hi", channel: "missing", reaction: null })),
-    /no matching/,
-  );
-  gateway.channels = [general, plans, { ...plans, id: "plans-two" }];
-  assert.match(
-    JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })),
-    /no matching/,
-  );
-  gateway.channels = [general, plans];
-  transport.failChannelId = "plans";
-  assert.match(
-    JSON.stringify(await execute(tool, { text: "hi", channel: "plans", reaction: null })),
-    /send failed/,
-  );
-  assert.deepEqual(recorded, []);
+  assert.match(JSON.stringify(await execute(tool, { text: " " })), /text is required/);
 });
 
 test("scheduled-message tool verifies targets and stores a future local schedule", async () => {
@@ -285,8 +240,7 @@ test("scheduled delivery pings only stored target IDs with an explicit mention p
 
 test("Discord capability tools register through the generic tool registry", () => {
   const gateway = new FakeGateway();
-  const transport = new FakeTransport();
-  const sendMessage = createSendTool(gateway, transport, () => undefined);
+  const sendMessage = createSendTool();
   const rememberPerson = createRememberPersonTool({
     gateway,
     users: new UserMentionDirectory(),
@@ -317,29 +271,12 @@ test("Discord capability tools register through the generic tool registry", () =
 
   assert.deepEqual(
     registry.definitions().map(({ name }) => name),
-    [
-      "send_message",
-      "remember_person",
-      "create_scheduled_message",
-      "wait_for_more_messages",
-      "sleep_conversation",
-    ],
+    ["message", "remember_person", "create_scheduled_message", "wait", "sleep"],
   );
 });
 
-function createSendTool(
-  gateway: FakeGateway,
-  transport: FakeTransport,
-  recordBotMessage: (channelId: string, text: string) => void,
-): Tool {
-  return createSendMessageTool({
-    gateway,
-    transport,
-    channels: new ChannelMentionDirectory(),
-    getActiveChannelId: () => "general",
-    recordBotMessage,
-    logger,
-  });
+function createSendTool(): Tool {
+  return createSendMessageTool();
 }
 
 function createScheduleTool(
@@ -395,18 +332,6 @@ async function execute(tool: Tool, argumentsValue: unknown) {
     name: tool.definition.name,
     arguments: argumentsValue,
   });
-}
-
-class FakeTransport implements ChatTransport {
-  messages: Array<{ channelId: string; text: string }> = [];
-  failChannelId: string | undefined;
-  async sendMessage(channelId: string, text: string): Promise<void> {
-    if (channelId === this.failChannelId) throw new Error("send failed");
-    this.messages.push({ channelId, text });
-  }
-  async addReaction(): Promise<void> {}
-  async sendTyping(): Promise<void> {}
-  async logStatus(): Promise<void> {}
 }
 
 class FakeGateway implements DiscordGateway {

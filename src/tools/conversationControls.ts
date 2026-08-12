@@ -38,7 +38,7 @@ function validationFailure(error: string): ToolResult {
 /** Terminal tool that keeps conversation state while awaiting another message. */
 export const waitTool: Tool = {
   definition: {
-    name: "wait_for_more_messages",
+    name: "wait",
     description: "Wait without replying.",
     parameters: createObjectSchema({}, []),
   },
@@ -54,7 +54,7 @@ export const waitTool: Tool = {
 /** Terminal tool that clears conversation state after saving a summary. */
 export const sleepTool: Tool = {
   definition: {
-    name: "sleep_conversation",
+    name: "sleep",
     description: "Optionally reply or react, save a summary, and sleep.",
     parameters: createObjectSchema(
       {

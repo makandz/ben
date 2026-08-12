@@ -28,12 +28,12 @@ test("loops through a capability tool and finishes with portable history", async
     },
   };
   const sendMessage: Tool = {
-    definition: { name: "send_message", description: "Replies.", parameters: {} },
+    definition: { name: "message", description: "Replies.", parameters: {} },
     async execute() {
       return {
         type: "finish",
         result: { ok: true, pausedUntil: "new_human_message" },
-        outcome: { type: "reply", text: "hey", reaction: "👍" },
+        outcome: { type: "reply", text: "hey" },
       };
     },
   };
@@ -42,7 +42,7 @@ test("loops through a capability tool and finishes with portable history", async
     {
       items: [
         { type: "message", role: "assistant", text: "I'll greet them." },
-        createToolCall("2", "send_message", { text: "hey", reaction: "👍" }),
+        createToolCall("2", "message", { text: "hey" }),
       ],
     },
   ]);
@@ -58,7 +58,6 @@ test("loops through a capability tool and finishes with portable history", async
   }
 
   assert.equal(result.text, "hey");
-  assert.equal(result.reaction, "👍");
   assert.deepEqual(model.requests[1]?.history.at(-1), {
     type: "tool_result",
     callId: "1",
@@ -73,7 +72,7 @@ test("loops through a capability tool and finishes with portable history", async
 
 test("preserves prior history without mutating the caller's array", async () => {
   const history = [{ type: "message" as const, role: "assistant" as const, text: "earlier" }];
-  const model = new ScriptedModel([{ items: [createToolCall("1", "wait_for_more_messages", {})] }]);
+  const model = new ScriptedModel([{ items: [createToolCall("1", "wait", {})] }]);
   const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([waitTool, sleepTool]));
 
   await orchestrator.run("system prompt", history, "new message");
@@ -88,7 +87,7 @@ test("preserves prior history without mutating the caller's array", async () => 
 test("returns model-readable failures for unknown tools before continuing", async () => {
   const model = new ScriptedModel([
     { items: [createToolCall("1", "unknown", {})] },
-    { items: [createToolCall("2", "wait_for_more_messages", {})] },
+    { items: [createToolCall("2", "wait", {})] },
   ]);
   const orchestrator = new ConversationOrchestrator(model, new ToolRegistry([waitTool, sleepTool]));
 
@@ -106,8 +105,8 @@ test("resolves every unexpected tool call with a failure result", async () => {
   const model = new ScriptedModel([
     {
       items: [
-        createToolCall("1", "send_message", { text: "first", reaction: null }),
-        createToolCall("2", "send_message", { text: "second", reaction: null }),
+        createToolCall("1", "message", { text: "first" }),
+        createToolCall("2", "message", { text: "second" }),
       ],
     },
   ]);
