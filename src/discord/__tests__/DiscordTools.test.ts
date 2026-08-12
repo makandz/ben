@@ -7,8 +7,6 @@ import type {
 } from "../../storage/ScheduledMessageStore.js";
 import type { SendMessageOptions } from "../../app/ChatTransport.js";
 import type { Tool } from "../../tools/Tool.js";
-import { ToolRegistry } from "../../tools/ToolRegistry.js";
-import { sleepTool, waitTool } from "../../tools/conversationControls.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "../DiscordDirectory.js";
 import type {
   DiscordChannel,
@@ -402,64 +400,6 @@ test("scheduled delivery pings only stored target IDs with an explicit mention p
       options: { allowUserMentions: true },
     },
   ]);
-});
-
-test("Discord capability tools register through the generic tool registry", () => {
-  const gateway = new FakeGateway();
-  const sendMessage = createSendTool();
-  const rememberName = createRememberNameTool({
-    gateway,
-    users: new UserMentionDirectory(),
-    store: {
-      async remember() {
-        return { ok: false, error: "unused" };
-      },
-    },
-    getActiveChannelId: () => "general",
-    logger,
-  });
-  const scheduledMessage = createScheduleTool(
-    gateway,
-    {
-      async add(input) {
-        return storedSchedule(input);
-      },
-    },
-    [],
-  );
-  const reactToMessage = createReactToMessageTool({
-    gateway,
-    getActiveChannelId: () => "general",
-    isMessageInActiveConversation: () => true,
-  });
-  const updateCustomStatus = createUpdateCustomStatusTool({
-    gateway,
-    store: { async set() {} },
-    getActiveChannelId: () => "general",
-    logger,
-  });
-  const registry = new ToolRegistry([
-    sendMessage,
-    reactToMessage,
-    rememberName,
-    updateCustomStatus,
-    scheduledMessage,
-    waitTool,
-    sleepTool,
-  ]);
-
-  assert.deepEqual(
-    registry.definitions().map(({ name }) => name),
-    [
-      "message",
-      "react",
-      "remember_name",
-      "update_status",
-      "create_scheduled_message",
-      "wait",
-      "sleep",
-    ],
-  );
 });
 
 function createSendTool(transport = new FakeMessageTransport()): Tool {

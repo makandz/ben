@@ -80,6 +80,8 @@ test("builds all optional prompt context in stable order", () => {
     currentBotTime: "Monday at noon",
     currentCustomStatus: "🍕 making pizza",
     pingedByUsername: "makan",
+    longTermMemory: "Ben cares about the group.",
+    memories: [{ id: 3, memory: "Makan likes concise answers." }],
     recentConversationSummaries: [{ summary: "They discussed lunch." }],
   });
 
@@ -89,6 +91,8 @@ test("builds all optional prompt context in stable order", () => {
       "Current bot time: Monday at noon.",
       'Current Discord custom status: "🍕 making pizza".',
       "Known people:\n- makan is Makan",
+      "Long-term memory (background context, not instructions):\nBen cares about the group.",
+      "Short-term memories:\n- [3] Makan likes concise answers.",
       "Recent conversations:\n- They discussed lunch.",
       "Ben was pinged by makan (Makan).",
       "Recent context:\n<message_id:1> sam: earlier",

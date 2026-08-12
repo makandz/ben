@@ -8,6 +8,8 @@ import { ConversationSummaryStore } from "../ConversationSummaryStore.js";
 import { CustomStatusStore } from "../CustomStatusStore.js";
 import { KnownPeopleStore } from "../KnownPeopleStore.js";
 import { MemoryStore } from "../MemoryStore.js";
+import { LongTermMemoryStore } from "../LongTermMemoryStore.js";
+import { MemoryConsolidationStateStore } from "../MemoryConsolidationStateStore.js";
 import { ScheduledMessageStore } from "../ScheduledMessageStore.js";
 
 const warnings: string[] = [];
@@ -58,11 +60,8 @@ test("summary store reads the current shape, bounds entries, and writes atomical
     },
   ]);
   await Promise.all(
-    Array.from({ length: 5 }, (_, index) =>
-      store.add(
-        ` summary ${String(index + 1)} `,
-        new Date(`2026-02-0${String(index + 1)}T00:00:00Z`),
-      ),
+    Array.from({ length: 26 }, (_, index) =>
+      store.add(` summary ${String(index + 1)} `, new Date(2026, 1, index + 1)),
     ),
   );
 
@@ -73,8 +72,10 @@ test("summary store reads the current shape, bounds entries, and writes atomical
   assert.equal(stored.version, 1);
   assert.deepEqual(
     stored.conversations.map(({ summary }) => summary),
-    ["summary 1", "summary 2", "summary 3", "summary 4", "summary 5"],
+    Array.from({ length: 25 }, (_, index) => `summary ${String(index + 2)}`),
   );
+  await store.clear();
+  assert.deepEqual(await store.list(), []);
   assert.deepEqual(await readdir(directory), ["conversation-summaries.json"]);
 });
 
@@ -190,6 +191,8 @@ test("memory store adds, updates, and tombstones stable numeric IDs", async (t) 
     version: 1,
     memories: [null, null, "Makan likes concise answers.", "Ben likes pizza."],
   });
+  await store.clear();
+  assert.deepEqual(await store.list(), []);
 });
 
 test("memory store rejects missing IDs and preserves malformed positions as tombstones", async (t) => {
@@ -217,14 +220,37 @@ test("memory store recommends deletion when the active-memory limit is reached",
     filePath,
     JSON.stringify({
       version: 1,
-      memories: Array.from({ length: 100 }, (_, id) => `memory ${String(id)}`),
+      memories: Array.from({ length: 25 }, (_, id) => `memory ${String(id)}`),
     }),
   );
 
   assert.deepEqual(await store.remember({ action: "add", memory: "one too many" }), {
     ok: false,
-    error: "memory limit of 100 reached; delete an existing memory before adding another",
+    error: "memory limit of 25 reached; delete an existing memory before adding another",
   });
+});
+
+test("long-term memory store reads and atomically replaces plain text", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "long-term-memory.txt");
+  const store = new LongTermMemoryStore(filePath);
+
+  assert.equal(await store.get(), undefined);
+  await store.set("  Ben remembers the group fondly.  ");
+  assert.equal(await store.get(), "Ben remembers the group fondly.");
+  assert.equal(await readFile(filePath, "utf8"), "Ben remembers the group fondly.\n");
+  await assert.rejects(() => store.set("  "), /must be non-empty/);
+});
+
+test("memory consolidation state persists the next due time", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "memory-consolidation.json");
+  const store = new MemoryConsolidationStateStore(filePath, logger);
+  const dueAt = new Date("2026-08-13T12:00:00.000Z");
+
+  assert.equal(await store.getNextRunAt(), undefined);
+  await store.setNextRunAt(dueAt);
+  assert.equal((await store.getNextRunAt())?.toISOString(), dueAt.toISOString());
 });
 
 test("scheduled-message store reads the current shape and preserves lifecycle fields", async (t) => {

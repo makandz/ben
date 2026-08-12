@@ -101,6 +101,40 @@ test("adapter owns login, shutdown, and error forwarding", async () => {
   assert.deepEqual(errors, ["Error: socket failed"]);
 });
 
+test("adapter forwards normalized slash-command identity and responses", async () => {
+  const gateway = new FakeDiscordGateway();
+  const commands: string[] = [];
+  const adapter = new DiscordAdapter(
+    gateway,
+    {
+      handleMessage() {},
+      handleTyping() {},
+      handleCommand: (event) => {
+        commands.push(`${event.name}:${event.userId}:${event.channelId}`);
+        void event.reply("started");
+      },
+    },
+    new UserMentionDirectory(),
+    new ChannelMentionDirectory(),
+    { info() {}, error() {} },
+  );
+
+  const replies: string[] = [];
+  gateway.handlers?.command({
+    name: "consolidate",
+    userId: "admin",
+    channelId: "channel-1",
+    async reply(content) {
+      replies.push(typeof content === "string" ? content : content.content);
+    },
+  });
+  await Promise.resolve();
+
+  assert.deepEqual(commands, ["consolidate:admin:channel-1"]);
+  assert.deepEqual(replies, ["started"]);
+  void adapter;
+});
+
 test("transport resolves unique names and sends only safe mentions", async () => {
   const gateway = new FakeDiscordGateway();
   gateway.channels = [general, { id: "channel-2", name: "plans", guildId: "guild-1" }];

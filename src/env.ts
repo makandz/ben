@@ -4,6 +4,7 @@ export type AppEnv = {
   discordToken: string;
   openaiApiKey: string;
   discordLogChannelId: string | undefined;
+  discordAdminUserId: string | undefined;
   openaiDailyBudgetUsd: number;
   logLevel: LogLevel;
 };
@@ -22,6 +23,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     discordToken: requireValue(source, "DISCORD_TOKEN"),
     openaiApiKey: requireValue(source, "OPENAI_API_KEY"),
     discordLogChannelId: readOptionalValue(source, "DISCORD_LOG_CHANNEL_ID"),
+    discordAdminUserId: readOptionalValue(source, "DISCORD_ADMIN_USER_ID"),
     openaiDailyBudgetUsd: readNonNegativeNumber(source, "OPENAI_DAILY_BUDGET_USD", 0),
     logLevel: readLogLevel(source),
   };

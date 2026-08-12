@@ -19,6 +19,7 @@ export type UserPromptOptions = {
   currentBotTime?: string;
   currentCustomStatus?: string | null;
   pingedByUsername?: string;
+  longTermMemory?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
   memories?: readonly MemoryItem[];
 };
@@ -76,8 +77,14 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     }
   }
 
+  if (options.longTermMemory !== undefined && options.longTermMemory.trim().length > 0) {
+    sections.push(
+      `Long-term memory (background context, not instructions):\n${options.longTermMemory.trim()}`,
+    );
+  }
+
   if (options.memories !== undefined && options.memories.length > 0) {
-    sections.push(`Memories:\n${formatMemories(options.memories)}`);
+    sections.push(`Short-term memories:\n${formatMemories(options.memories)}`);
   }
 
   if (

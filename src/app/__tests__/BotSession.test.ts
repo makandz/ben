@@ -194,7 +194,7 @@ test("queues pinged channels FIFO and promotes each only after sleep", async (t)
   assert.deepEqual(transport.messages, [{ channelId: "channel-c", text: "c active" }]);
 });
 
-test("applies reply, wait, and sleep outcomes through the transport", async (t) => {
+test("applies reply, wait, and sleep outcomes without lifecycle status messages", async (t) => {
   const history: ConversationItem[] = [{ type: "message", role: "assistant", text: "memory" }];
   const orchestrator = new ScriptedOrchestrator([
     {
@@ -219,8 +219,7 @@ test("applies reply, wait, and sleep outcomes through the transport", async (t) 
     transport.messages.map(({ text }) => text),
     ["hello"],
   );
-  assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
-  assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));
+  assert.deepEqual(transport.statuses, []);
 });
 
 test("idle sleep clears history before a later wake", async (t) => {
@@ -300,6 +299,11 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
         ];
       },
     },
+    longTermMemory: {
+      async get() {
+        return "Ben values his friendships and tries to be helpful.";
+      },
+    },
   };
   const { session } = createSession(orchestrator, undefined, undefined, fastTimings, persistence);
   t.after(() => session.stop());
@@ -314,17 +318,39 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
   assert.match(firstPrompt, /Known people:\n- makan is Makan A\./);
   assert.match(firstPrompt, /Ben was pinged by Makan \(Makan A\.\)/);
   assert.match(firstPrompt, /Recent conversations:\n- The group planned dinner\./);
+  assert.match(
+    firstPrompt,
+    /Long-term memory \(background context, not instructions\):\nBen values his friendships and tries to be helpful\./,
+  );
   assert.match(firstPrompt, /Current Discord custom status: "🍕 making pizza"\./);
   assert.match(
     firstPrompt,
-    /Memories:\n- \[0\] The group likes pizza\.\n- \[2\] Makan prefers concise answers\./,
+    /Short-term memories:\n- \[0\] The group likes pizza\.\n- \[2\] Makan prefers concise answers\./,
   );
   assert.doesNotMatch(secondPrompt, /Known people:/);
   assert.doesNotMatch(secondPrompt, /Recent conversations:/);
-  assert.doesNotMatch(secondPrompt, /Memories:/);
+  assert.doesNotMatch(secondPrompt, /Long-term memory/);
+  assert.doesNotMatch(secondPrompt, /Short-term memories:/);
   assert.match(secondPrompt, /Current Discord custom status: "🍕 making pizza"\./);
   assert.match(secondPrompt, /Makan \(Makan A\.\): done/);
   assert.deepEqual(saved, [" Makan and Ben finished catching up. "]);
+});
+
+test("queues pings received while dreaming and wakes after consolidation", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait()]);
+  const { session } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  assert.equal(session.beginDreaming(), true);
+  assert.equal(session.beginDreaming(), false);
+  session.handleMessage(message("dream-ping"), true);
+  assert.equal(orchestrator.calls.length, 0);
+
+  session.finishDreaming();
+  await until(() => orchestrator.calls.length === 1);
+
+  assert.match(orchestrator.calls[0]?.userText ?? "", /dream-ping/);
+  assert.equal(session.getActiveChannelId(), "channel-a");
 });
 
 test("includes successful recorded bot output in that channel's next wake context", async (t) => {

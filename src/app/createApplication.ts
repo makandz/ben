@@ -8,6 +8,13 @@ import type { DiscordGateway } from "../discord/DiscordGateway.js";
 import { DiscordPresence } from "../discord/DiscordPresence.js";
 import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDelivery.js";
 import { DiscordTransport } from "../discord/DiscordTransport.js";
+import {
+  DREAM_COMPLETE_MESSAGE,
+  DREAM_START_MESSAGE,
+  formatConsolidationResult,
+  handleConsolidateCommand,
+  registerConsolidateCommand,
+} from "../discord/consolidateCommand.js";
 import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
@@ -16,6 +23,8 @@ import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
 import { sendToolStatus } from "../discord/tools/toolSupport.js";
 import { createUpdateCustomStatusTool } from "../discord/tools/updateCustomStatus.js";
 import type { Model } from "../model/Model.js";
+import { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
+import { MemoryConsolidator } from "../memory/MemoryConsolidator.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
 import { formatBotTime } from "../scheduling/scheduleTime.js";
 import {
@@ -26,6 +35,8 @@ import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js
 import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { MemoryStore } from "../storage/MemoryStore.js";
+import { LongTermMemoryStore } from "../storage/LongTermMemoryStore.js";
+import { MemoryConsolidationStateStore } from "../storage/MemoryConsolidationStateStore.js";
 import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
@@ -37,6 +48,8 @@ const paths = {
   schedules: "logs/scheduled-messages.json",
   customStatus: "logs/custom-status.json",
   memories: "logs/memories.json",
+  longTermMemory: "logs/long-term-memory.txt",
+  memoryConsolidationState: "logs/memory-consolidation.json",
 } as const;
 
 export type Application = {
@@ -49,7 +62,9 @@ export type ApplicationDependencies = {
   logger: Logger;
   gateway: DiscordGateway;
   conversationModel: Model;
+  consolidationModel: Model;
   instructions: string;
+  consolidationInstructions: string;
   usageStore: OpenAIUsageStore;
 };
 
@@ -88,6 +103,11 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const schedules = new ScheduledMessageStore(paths.schedules, logger);
   const customStatus = new CustomStatusStore(paths.customStatus, logger);
   const memories = new MemoryStore(paths.memories, logger);
+  const longTermMemory = new LongTermMemoryStore(paths.longTermMemory);
+  const consolidationState = new MemoryConsolidationStateStore(
+    paths.memoryConsolidationState,
+    logger,
+  );
   const scheduledScheduler = new ScheduledMessageScheduler(
     schedules,
     createScheduledMessageDelivery(gateway),
@@ -161,10 +181,34 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     presence,
     logger,
     {},
-    { summaries, knownPeople: people, customStatus, memories },
+    { summaries, knownPeople: people, customStatus, memories, longTermMemory },
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
+  );
+  const memoryConsolidator = new MemoryConsolidator(
+    dependencies.consolidationModel,
+    dependencies.consolidationInstructions,
+    { summaries, shortTermMemories: memories, longTermMemory },
+  );
+  const memoryConsolidationScheduler = new MemoryConsolidationScheduler(
+    memoryConsolidator,
+    consolidationState,
+    session,
+    {
+      started: () => sendConsolidationStatus(transport, logger, DREAM_START_MESSAGE),
+      completed: async (result) => {
+        await sendConsolidationStatus(transport, logger, formatConsolidationResult(result));
+        await sendConsolidationStatus(transport, logger, DREAM_COMPLETE_MESSAGE);
+      },
+      failed: () =>
+        sendConsolidationStatus(
+          transport,
+          logger,
+          "Consolidation failed. Short-term memories were preserved.",
+        ),
+    },
+    logger,
   );
 
   let ready = false;
@@ -185,12 +229,28 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
         void scheduledScheduler.start();
+        void memoryConsolidationScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
         });
+        void registerConsolidateCommand(gateway, logger).catch((error: unknown) => {
+          logger.warn("discord.command_registration_failed", { error: String(error) });
+        });
       },
-      handleCommand: (name, reply) => {
-        if (name === "usage") void handleUsageCommand({ reply }, dependencies.usageStore, logger);
+      handleCommand: (event) => {
+        if (event.name === "usage") {
+          void handleUsageCommand(event, dependencies.usageStore, logger);
+        } else if (event.name === "consolidate") {
+          void handleConsolidateCommand(
+            event,
+            env.discordAdminUserId,
+            memoryConsolidationScheduler,
+            async (channelId, message) => {
+              await transport.sendMessage(channelId, message);
+            },
+            logger,
+          );
+        }
       },
     },
     users,
@@ -206,7 +266,19 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     async stop() {
       session.stop();
       scheduledScheduler.stop();
+      memoryConsolidationScheduler.stop();
       await adapter.stop();
     },
   };
+}
+
+/** Contains optional Discord consolidation-status delivery failures. */
+async function sendConsolidationStatus(
+  transport: Pick<DiscordTransport, "logStatus">,
+  logger: Pick<Logger, "warn">,
+  message: string,
+): Promise<void> {
+  await transport.logStatus(message).catch((error: unknown) => {
+    logger.warn("discord.memory_consolidation_status_failed", { error: String(error) });
+  });
 }

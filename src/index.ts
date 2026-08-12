@@ -9,6 +9,7 @@ import { Logger } from "./logger.js";
 import { OpenAIModel, OPENAI_CONVERSATION_MODEL } from "./model/openai/OpenAIModel.js";
 import { OpenAIUsageStore } from "./model/openai/OpenAIUsageStore.js";
 import { loadSystemPrompt } from "./prompts/systemPrompt.js";
+import { loadMemoryConsolidationPrompt } from "./prompts/memoryConsolidationPrompt.js";
 
 export { loadEnv, type AppEnv, type LogLevel };
 export { Logger, type LogData } from "./logger.js";
@@ -41,13 +42,22 @@ export async function createDefaultApplication(): Promise<Application> {
     env.openaiDailyBudgetUsd,
     logger,
   );
+  const [instructions, consolidationInstructions] = await Promise.all([
+    loadSystemPrompt(),
+    loadMemoryConsolidationPrompt(),
+  ]);
   return createApplication({
     env,
     logger,
     gateway,
     usageStore,
     conversationModel: new OpenAIModel({ apiKey: env.openaiApiKey }, usageStore),
-    instructions: await loadSystemPrompt(),
+    consolidationModel: new OpenAIModel(
+      { apiKey: env.openaiApiKey, maxOutputTokens: 2_048 },
+      usageStore,
+    ),
+    instructions,
+    consolidationInstructions,
   });
 }
 

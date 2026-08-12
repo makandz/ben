@@ -8,11 +8,12 @@ const requiredEnv = {
   OPENAI_API_KEY: "openai-key",
 };
 
-test("loadEnv loads the five-variable contract with defaults", () => {
+test("loadEnv loads the six-variable contract with defaults", () => {
   assert.deepEqual(loadEnv(requiredEnv), {
     discordToken: "discord-token",
     openaiApiKey: "openai-key",
     discordLogChannelId: undefined,
+    discordAdminUserId: undefined,
     openaiDailyBudgetUsd: 0,
     logLevel: "info",
   });
@@ -23,6 +24,7 @@ test("loadEnv validates and loads optional values", () => {
     loadEnv({
       ...requiredEnv,
       DISCORD_LOG_CHANNEL_ID: " log-channel ",
+      DISCORD_ADMIN_USER_ID: " admin-user ",
       OPENAI_DAILY_BUDGET_USD: "12.5",
       LOG_LEVEL: "debug",
     }),
@@ -30,6 +32,7 @@ test("loadEnv validates and loads optional values", () => {
       discordToken: "discord-token",
       openaiApiKey: "openai-key",
       discordLogChannelId: "log-channel",
+      discordAdminUserId: "admin-user",
       openaiDailyBudgetUsd: 12.5,
       logLevel: "debug",
     },
