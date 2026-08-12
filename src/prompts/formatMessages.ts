@@ -68,22 +68,16 @@ export function buildUserPrompt(options: UserPromptOptions): string {
   const sections: string[] = [];
   const knownPeople = options.knownPeople ?? {};
 
+  if (options.currentBotTime !== undefined) {
+    sections.push(`Current bot time: ${options.currentBotTime}.`);
+  }
+
   if (options.includeKnownPeople === true) {
     const knownPeopleText = formatKnownPeople(knownPeople);
 
     if (knownPeopleText.length > 0) {
       sections.push(`Known people:\n${knownPeopleText}`);
     }
-  }
-
-  if (options.currentBotTime !== undefined) {
-    sections.push(
-      `Current bot time: ${options.currentBotTime}. Scheduled message tool dates must be YYYY-MM-DD and times must be 24-hour HH:mm in the bot's local time.`,
-    );
-  }
-
-  if (options.pingedByUsername !== undefined) {
-    sections.push(`Ben was pinged by ${formatSpeaker(options.pingedByUsername, knownPeople)}.`);
   }
 
   if (
@@ -93,6 +87,10 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     sections.push(
       `Recent conversations:\n${formatConversationSummaries(options.recentConversationSummaries)}`,
     );
+  }
+
+  if (options.pingedByUsername !== undefined) {
+    sections.push(`Ben was pinged by ${formatSpeaker(options.pingedByUsername, knownPeople)}.`);
   }
 
   if (options.recentContext.length > 0) {

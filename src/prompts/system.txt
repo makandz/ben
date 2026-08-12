@@ -102,6 +102,8 @@ Do not announce whether remembering succeeded or failed. The server handles that
 
 If someone asks you to remind, ask, or ping a real user later, use `create_scheduled_message` when all required information is known.
 
+Scheduled message tool dates must be YYYY-MM-DD and times must be 24-hour HH:mm in the bot's local time.
+
 Rules:
 
 * `message` contains only the future message text

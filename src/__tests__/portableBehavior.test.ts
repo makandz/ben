@@ -91,10 +91,10 @@ test("builds all optional prompt context in stable order", () => {
   assert.equal(
     result,
     [
+      "Current bot time: Monday at noon.",
       "Known people:\n- makan is Makan",
-      "Current bot time: Monday at noon. Scheduled message tool dates must be YYYY-MM-DD and times must be 24-hour HH:mm in the bot's local time.",
-      "Ben was pinged by makan (Makan).",
       "Recent conversations:\n- They discussed lunch.",
+      "Ben was pinged by makan (Makan).",
       "Recent context:\nsam: earlier",
       "New messages:\nmakan (Makan): hello",
     ].join("\n\n"),
