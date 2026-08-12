@@ -5,6 +5,8 @@ import type {
   DiscordGateway,
   DiscordGatewayHandlers,
   DiscordMember,
+  DiscordSendOptions,
+  DiscordSentMessage,
   DiscordUser,
 } from "./DiscordGateway.js";
 
@@ -148,16 +150,46 @@ export class DiscordJsGateway implements DiscordGateway {
   async sendMessage(
     channelId: string,
     content: string,
-    options: { allowUserMentions: boolean },
-  ): Promise<void> {
+    options: DiscordSendOptions,
+  ): Promise<DiscordSentMessage> {
     const channel = await this.client.channels.fetch(channelId);
     if (!channel?.isSendable()) {
       throw new Error("Discord channel is not sendable.");
     }
-    await channel.send({
+    const message = await channel.send({
       content,
-      allowedMentions: { parse: options.allowUserMentions ? ["users"] : [] },
+      allowedMentions: {
+        parse: options.allowUserMentions ? ["users"] : [],
+        repliedUser: false,
+      },
+      ...(options.replyToMessageId === undefined
+        ? {}
+        : {
+            reply: {
+              messageReference: options.replyToMessageId,
+              failIfNotExists: false,
+            },
+          }),
     });
+    return { id: message.id, createdAt: message.createdTimestamp };
+  }
+
+  /**
+   * Adds a reaction to a message in a text-based channel.
+   *
+   * @param channelId - Channel containing the target message.
+   * @param messageId - Discord identifier of the target message.
+   * @param emoji - Unicode or custom Discord emoji identifier to add.
+   * @returns A promise that resolves after Discord accepts the reaction.
+   * @throws When the channel is unavailable or does not contain messages.
+   */
+  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    const channel = await this.client.channels.fetch(channelId);
+    if (!channel?.isTextBased()) {
+      throw new Error("Discord reaction channel is not text-based.");
+    }
+    const message = await channel.messages.fetch(messageId);
+    await message.react(emoji);
   }
 
   /**

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { escapeBroadcastMentions } from "../discord/mentions.js";
 import { calculateCostUsd, getModelPricing } from "../model/pricing.js";
-import { buildUserPrompt, formatGroupedMessages } from "../prompts/formatMessages.js";
+import { buildUserPrompt, formatMessages } from "../prompts/formatMessages.js";
 import { loadSystemPrompt } from "../prompts/systemPrompt.js";
 
 const messageBase = {
@@ -54,18 +54,21 @@ test("does not produce negative uncached usage", () => {
   assert.equal(cost, 0.00002);
 });
 
-test("groups consecutive messages and omits empty content", () => {
-  const result = formatGroupedMessages(
+test("preserves one addressable transcript line per non-empty message", () => {
+  const result = formatMessages(
     [
       { ...messageBase, id: "1", username: "makan", content: " hi " },
-      { ...messageBase, id: "2", username: "makan", content: "there" },
+      { ...messageBase, id: "2", username: "makan", content: "there\nfriend" },
       { ...messageBase, id: "3", username: "sam", content: " " },
       { ...messageBase, id: "4", username: "sam", content: "hello" },
     ],
     { makan: { name: "Makan" } },
   );
 
-  assert.equal(result, "makan (Makan): hi there\nsam: hello");
+  assert.equal(
+    result,
+    "<message_id:1> makan (Makan): hi\n<message_id:2> makan (Makan): there friend\n<message_id:4> sam: hello",
+  );
 });
 
 test("builds all optional prompt context in stable order", () => {
@@ -86,8 +89,8 @@ test("builds all optional prompt context in stable order", () => {
       "Known people:\n- makan is Makan",
       "Recent conversations:\n- They discussed lunch.",
       "Ben was pinged by makan (Makan).",
-      "Recent context:\nsam: earlier",
-      "New messages:\nmakan (Makan): hello",
+      "Recent context:\n<message_id:1> sam: earlier",
+      "New messages:\n<message_id:2> makan (Makan): hello",
     ].join("\n\n"),
   );
 });

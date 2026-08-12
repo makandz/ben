@@ -17,45 +17,26 @@ export type UserPromptOptions = {
 };
 
 /**
- * Groups consecutive messages from the same speaker.
+ * Formats messages as individually addressable transcript lines.
  *
  * @param messages - Human messages in chronological order.
  * @param knownPeople - Optional mapping from usernames to real names.
- * @returns One prompt line per consecutive raw username.
+ * @returns One prompt line per non-empty Discord message.
  */
-export function formatGroupedMessages(
+export function formatMessages(
   messages: readonly HumanMessage[],
   knownPeople: KnownPeople = {},
 ): string {
-  const lines: string[] = [];
-  let currentUsername: string | undefined;
-  let currentContent: string[] = [];
-
-  for (const message of messages) {
-    const content = message.content.trim();
-
-    if (content.length === 0) {
-      continue;
-    }
-
-    if (message.username !== currentUsername) {
-      if (currentUsername !== undefined && currentContent.length > 0) {
-        lines.push(`${formatSpeaker(currentUsername, knownPeople)}: ${currentContent.join(" ")}`);
-      }
-
-      currentUsername = message.username;
-      currentContent = [content];
-      continue;
-    }
-
-    currentContent.push(content);
-  }
-
-  if (currentUsername !== undefined && currentContent.length > 0) {
-    lines.push(`${formatSpeaker(currentUsername, knownPeople)}: ${currentContent.join(" ")}`);
-  }
-
-  return lines.join("\n");
+  return messages
+    .flatMap((message) => {
+      const content = message.content.trim().replace(/\s*\r?\n\s*/g, " ");
+      return content.length === 0
+        ? []
+        : [
+            `<message_id:${message.id}> ${formatSpeaker(message.username, knownPeople)}: ${content}`,
+          ];
+    })
+    .join("\n");
 }
 
 /**
@@ -94,10 +75,10 @@ export function buildUserPrompt(options: UserPromptOptions): string {
   }
 
   if (options.recentContext.length > 0) {
-    sections.push(`Recent context:\n${formatGroupedMessages(options.recentContext, knownPeople)}`);
+    sections.push(`Recent context:\n${formatMessages(options.recentContext, knownPeople)}`);
   }
 
-  sections.push(`New messages:\n${formatGroupedMessages(options.messages, knownPeople)}`);
+  sections.push(`New messages:\n${formatMessages(options.messages, knownPeople)}`);
 
   return sections.join("\n\n");
 }

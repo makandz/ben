@@ -125,7 +125,10 @@ test("starts sleeping, keeps bounded channel context, and batches an awake chann
   assert.doesNotMatch(prompt, /old-1/);
   assert.match(prompt, /old-2/);
   assert.match(prompt, /old-6/);
-  assert.match(prompt, /New messages:\nMakan: ping follow-up/);
+  assert.match(
+    prompt,
+    /New messages:\n<message_id:ping> Makan: ping\n<message_id:follow-up> Makan: follow-up/,
+  );
   assert.deepEqual(presence.values[0], { status: "online" });
   assert.deepEqual(transport.messages, [{ channelId: "channel-a", text: "hey" }]);
 });
@@ -181,7 +184,8 @@ test("queues pinged channels FIFO and promotes each only after sleep", async (t)
   await until(() => orchestrator.calls.length === 3 && transport.messages.length === 1);
 
   assert.match(orchestrator.calls[0]?.userText ?? "", /a-ping/);
-  assert.match(orchestrator.calls[1]?.userText ?? "", /b-ping b-more/);
+  assert.match(orchestrator.calls[1]?.userText ?? "", /b-ping/);
+  assert.match(orchestrator.calls[1]?.userText ?? "", /b-more/);
   assert.match(orchestrator.calls[2]?.userText ?? "", /c-ping/);
   assert.deepEqual(
     orchestrator.calls.map((call) => call.history),
@@ -308,11 +312,22 @@ test("includes successful recorded bot output in that channel's next wake contex
   const { session } = createSession(orchestrator);
   t.after(() => session.stop());
 
-  session.recordBotMessage("channel-b", "cross-channel hello");
+  session.recordBotMessage({
+    id: "discord-bot-message",
+    channelId: "channel-b",
+    userId: "ben-user",
+    username: "Ben",
+    content: "cross-channel hello",
+    createdAt: 123,
+  });
   session.handleMessage(message("ping", "channel-b", "B"), true);
   await until(() => orchestrator.calls.length === 1);
 
-  assert.match(orchestrator.calls[0]?.userText ?? "", /Recent context:\nBen: cross-channel hello/);
+  assert.match(
+    orchestrator.calls[0]?.userText ?? "",
+    /Recent context:\n<message_id:discord-bot-message> Ben: cross-channel hello/,
+  );
+  assert.equal(session.isMessageInActiveConversation("discord-bot-message"), true);
 });
 
 test("rejects invalid timing overrides", () => {

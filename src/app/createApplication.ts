@@ -11,6 +11,7 @@ import { DiscordTransport } from "../discord/DiscordTransport.js";
 import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
+import { createReactToMessageTool } from "../discord/tools/reactToMessage.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
@@ -55,7 +56,25 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const { env, logger, gateway } = dependencies;
   const users = new UserMentionDirectory();
   const channels = new ChannelMentionDirectory();
-  const transport = new DiscordTransport(gateway, users, channels, env.discordLogChannelId, logger);
+  let session!: BotSession;
+  const transport = new DiscordTransport(
+    gateway,
+    users,
+    channels,
+    env.discordLogChannelId,
+    logger,
+    (channelId, text, delivery) => {
+      const botUser = gateway.getBotUser();
+      session.recordBotMessage({
+        id: delivery.id,
+        channelId,
+        userId: botUser?.id ?? "ben",
+        username: botUser?.username ?? "Ben",
+        content: text,
+        createdAt: delivery.createdAt,
+      });
+    },
+  );
   const presence = new DiscordPresence(gateway);
   const summaries = new ConversationSummaryStore(paths.summaries, logger);
   const people = new KnownPeopleStore(paths.people, logger);
@@ -67,12 +86,21 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     logger,
   );
 
-  let session: BotSession;
   const tools = new ToolRegistry([waitTool, sleepTool]);
   tools.register(
     createSendMessageTool({
       transport,
       getActiveChannelId: () => session.getActiveChannelId(),
+      isMessageInActiveConversation: (messageId) =>
+        session.isMessageInActiveConversation(messageId),
+    }),
+  );
+  tools.register(
+    createReactToMessageTool({
+      gateway,
+      getActiveChannelId: () => session.getActiveChannelId(),
+      isMessageInActiveConversation: (messageId) =>
+        session.isMessageInActiveConversation(messageId),
     }),
   );
   tools.register(
