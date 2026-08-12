@@ -22,22 +22,14 @@ test("wait finishes without producing a message", async () => {
   });
 });
 
-test("sleep requires a summary and validates its reaction", async () => {
-  const missingSummary = await sleepTool.execute(
-    createToolCall({ summary: "", text: null, reaction: null }),
-  );
-  const invalidReaction = await sleepTool.execute(
-    createToolCall({ summary: "done", text: null, reaction: "no" }),
-  );
+test("sleep requires a summary", async () => {
+  const missingSummary = await sleepTool.execute(createToolCall({ summary: "" }));
 
   assert.equal(missingSummary.type, "continue");
-  assert.equal(invalidReaction.type, "continue");
 });
 
-test("sleep finishes with its optional message and reaction", async () => {
-  const result = await sleepTool.execute(
-    createToolCall({ summary: "done", text: "bye", reaction: "👋" }),
-  );
+test("sleep finishes with its summary", async () => {
+  const result = await sleepTool.execute(createToolCall({ summary: "done" }));
 
   assert.equal(result.type, "finish");
 
@@ -45,8 +37,6 @@ test("sleep finishes with its optional message and reaction", async () => {
     assert.deepEqual(result.outcome, {
       type: "sleep",
       summary: "done",
-      text: "bye",
-      reaction: "👋",
     });
   }
 });

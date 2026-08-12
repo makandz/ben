@@ -10,7 +10,7 @@ import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDeliv
 import { DiscordTransport } from "../discord/DiscordTransport.js";
 import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
-import { createRememberPersonTool } from "../discord/tools/rememberPerson.js";
+import { createRememberNameTool } from "../discord/tools/rememberName.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
@@ -71,16 +71,12 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const tools = new ToolRegistry([waitTool, sleepTool]);
   tools.register(
     createSendMessageTool({
-      gateway,
       transport,
-      channels,
       getActiveChannelId: () => session.getActiveChannelId(),
-      recordBotMessage: (channelId, content) => session.recordBotMessage(channelId, content),
-      logger,
     }),
   );
   tools.register(
-    createRememberPersonTool({
+    createRememberNameTool({
       gateway,
       users,
       store: people,

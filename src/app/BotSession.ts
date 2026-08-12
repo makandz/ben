@@ -304,7 +304,6 @@ export class BotSession {
     const messages = this.pendingBatch;
     const recentContext = this.pendingRecentContext;
     const channelId = messages[0]?.channelId;
-    const reactionMessageId = messages.at(-1)?.id;
     this.pendingBatch = [];
     this.pendingRecentContext = [];
     this.mode = "processing";
@@ -341,7 +340,7 @@ export class BotSession {
       const outcome = await this.orchestrator
         .run(this.instructions, this.history, prompt)
         .catch((error: unknown): ConversationOutcome => ({ type: "failed", error }));
-      await this.applyOutcome(outcome, channelId, reactionMessageId);
+      await this.applyOutcome(outcome, channelId);
     } finally {
       this.activeCreator = undefined;
       stopTyping();
@@ -368,25 +367,18 @@ export class BotSession {
   private async applyOutcome(
     outcome: ConversationOutcome,
     channelId: string | undefined,
-    messageId: string | undefined,
   ): Promise<void> {
     if (outcome.type === "sleep") {
       await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
         this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
       });
-      await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
-      await this.deliverOptionalMessage(channelId, outcome.text);
       await this.logStatus("Going back to sleep", { channelId, summary: outcome.summary });
       this.goToSleep("model");
       return;
     }
 
     if (outcome.type === "reply") {
-      await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
       await this.deliverOptionalMessage(channelId, outcome.text);
-      this.history = [...outcome.history];
-    } else if (outcome.type === "react") {
-      await this.deliverOptionalReaction(channelId, messageId, outcome.reaction);
       this.history = [...outcome.history];
     } else if (outcome.type === "wait") {
       await this.logStatus("Waiting for the next message", { channelId });
@@ -430,22 +422,6 @@ export class BotSession {
     }
     await this.transport.sendMessage(channelId, text).catch((error: unknown) => {
       this.logger.warn("chat.send_failed", { error: String(error) });
-    });
-  }
-
-  /** Adds an optional reaction while containing transport failures. */
-  private async deliverOptionalReaction(
-    channelId: string | undefined,
-    messageId: string | undefined,
-    emoji: string | undefined,
-  ): Promise<void> {
-    if (emoji === undefined) return;
-    if (channelId === undefined || messageId === undefined) {
-      this.logger.warn("chat.reaction_failed", { error: "Missing reaction target" });
-      return;
-    }
-    await this.transport.addReaction(channelId, messageId, emoji).catch((error: unknown) => {
-      this.logger.warn("chat.reaction_failed", { error: String(error) });
     });
   }
 

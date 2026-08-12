@@ -116,7 +116,6 @@ test("transport resolves unique names and sends only safe mentions", async () =>
   await transport.sendMessage("channel-1", "hey @makan in #plans, not @everyone or @here");
   await transport.logStatus("@everyone diagnostics");
   await transport.sendTyping("channel-1");
-  await transport.addReaction("channel-1", "message-1", "👍");
 
   assert.deepEqual(gateway.sent, [
     {
@@ -131,9 +130,6 @@ test("transport resolves unique names and sends only safe mentions", async () =>
     },
   ]);
   assert.deepEqual(gateway.typing, ["channel-1"]);
-  assert.deepEqual(gateway.reactions, [
-    { channelId: "channel-1", messageId: "message-1", emoji: "👍" },
-  ]);
   assert.deepEqual(gateway.memberSearches, [{ guildId: "guild-1", query: "makan" }]);
 });
 
@@ -192,7 +188,6 @@ class FakeDiscordGateway implements DiscordGateway {
   destroyed = false;
   sent: Array<{ channelId: string; content: string; options: DiscordSendOptions }> = [];
   typing: string[] = [];
-  reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
   presences: Array<"idle" | "online"> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
 
@@ -227,9 +222,6 @@ class FakeDiscordGateway implements DiscordGateway {
   }
   async sendTyping(channelId: string): Promise<void> {
     this.typing.push(channelId);
-  }
-  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
-    this.reactions.push({ channelId, messageId, emoji });
   }
   setPresence(status: "idle" | "online"): void {
     this.presences.push(status);

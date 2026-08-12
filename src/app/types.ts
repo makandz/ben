@@ -26,10 +26,8 @@ export type ConversationOutcome =
   | {
       type: "reply";
       text: string;
-      reaction?: string;
       history: ConversationItem[];
     }
-  | { type: "react"; reaction: string; history: ConversationItem[] }
   | { type: "wait"; history: ConversationItem[] }
-  | { type: "sleep"; summary: string; text?: string; reaction?: string }
+  | { type: "sleep"; summary: string }
   | { type: "failed"; error: unknown };

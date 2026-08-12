@@ -50,18 +50,6 @@ export class DiscordTransport implements ChatTransport {
   }
 
   /**
-   * Adds a reaction to the instigating Discord message.
-   *
-   * @param channelId - Channel containing the target message.
-   * @param messageId - Target Discord message identifier.
-   * @param emoji - Unicode emoji to apply.
-   * @returns A promise that resolves after Discord applies the reaction.
-   */
-  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
-    await this.gateway.addReaction(channelId, messageId, emoji);
-  }
-
-  /**
    * Refreshes Discord's typing indicator.
    *
    * @param channelId - Channel where Ben is composing a response.
