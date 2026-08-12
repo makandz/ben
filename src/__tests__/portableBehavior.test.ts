@@ -5,7 +5,6 @@ import { escapeBroadcastMentions } from "../discord/mentions.js";
 import { calculateCostUsd, getModelPricing } from "../model/pricing.js";
 import { buildUserPrompt, formatGroupedMessages } from "../prompts/formatMessages.js";
 import { loadSystemPrompt } from "../prompts/systemPrompt.js";
-import { isSingleUnicodeEmoji } from "../util/emoji.js";
 
 const messageBase = {
   channelId: "channel",
@@ -18,14 +17,6 @@ test("escapes broadcast mentions without changing user mentions", () => {
     escapeBroadcastMentions("@everyone @here @makan"),
     "@\u200Beveryone @\u200Bhere @makan",
   );
-});
-
-test("validates one emoji grapheme", () => {
-  assert.equal(isSingleUnicodeEmoji("👨‍👩‍👧‍👦"), true);
-  assert.equal(isSingleUnicodeEmoji("🇨🇦"), true);
-  assert.equal(isSingleUnicodeEmoji("🙂🙂"), false);
-  assert.equal(isSingleUnicodeEmoji("a"), false);
-  assert.equal(isSingleUnicodeEmoji(""), false);
 });
 
 test("resolves established model pricing and rejects unknown models", () => {

@@ -1,7 +1,4 @@
 import type { Tool, ToolResult } from "./Tool.js";
-import { isSingleUnicodeEmoji } from "../util/emoji.js";
-
-const nullableString = { type: ["string", "null"] };
 
 /** Creates the standard object schema used by conversation controls. */
 function createObjectSchema(
@@ -38,7 +35,7 @@ function validationFailure(error: string): ToolResult {
 /** Terminal tool that keeps conversation state while awaiting another message. */
 export const waitTool: Tool = {
   definition: {
-    name: "wait_for_more_messages",
+    name: "wait",
     description: "Wait without replying.",
     parameters: createObjectSchema({}, []),
   },
@@ -54,29 +51,16 @@ export const waitTool: Tool = {
 /** Terminal tool that clears conversation state after saving a summary. */
 export const sleepTool: Tool = {
   definition: {
-    name: "sleep_conversation",
-    description: "Optionally reply or react, save a summary, and sleep.",
-    parameters: createObjectSchema(
-      {
-        text: nullableString,
-        reaction: nullableString,
-        summary: { type: "string" },
-      },
-      ["text", "reaction", "summary"],
-    ),
+    name: "sleep",
+    description: "Save a conversation summary and sleep.",
+    parameters: createObjectSchema({ summary: { type: "string" } }, ["summary"]),
   },
   async execute(call) {
     const input = parseArguments(call.arguments);
-    const message = parseValue(input.text);
-    const reaction = parseValue(input.reaction);
     const summary = parseValue(input.summary);
 
     if (summary.length === 0) {
       return validationFailure("summary is required");
-    }
-
-    if (reaction.length > 0 && !isSingleUnicodeEmoji(reaction)) {
-      return validationFailure("reaction must be exactly one standard Unicode emoji");
     }
 
     return {
@@ -85,8 +69,6 @@ export const sleepTool: Tool = {
       outcome: {
         type: "sleep",
         summary,
-        ...(message.length > 0 ? { text: message } : {}),
-        ...(reaction.length > 0 ? { reaction } : {}),
       },
     };
   },

@@ -190,18 +190,16 @@ test("queues pinged channels FIFO and promotes each only after sleep", async (t)
   assert.deepEqual(transport.messages, [{ channelId: "channel-c", text: "c active" }]);
 });
 
-test("applies reply, react, wait, and sleep outcomes through the transports", async (t) => {
+test("applies reply, wait, and sleep outcomes through the transport", async (t) => {
   const history: ConversationItem[] = [{ type: "message", role: "assistant", text: "memory" }];
   const orchestrator = new ScriptedOrchestrator([
     {
       type: "reply",
       text: "hello",
-      reaction: "👋",
       history,
     },
-    { type: "react", reaction: "👍", history },
     wait(history),
-    { type: "sleep", summary: "Finished talking.", text: "later", reaction: "😴" },
+    { type: "sleep", summary: "Finished talking." },
   ]);
   const { session, transport, presence } = createSession(orchestrator);
   t.after(() => session.stop());
@@ -209,23 +207,13 @@ test("applies reply, react, wait, and sleep outcomes through the transports", as
   session.handleMessage(message("one"), true);
   await until(() => transport.messages.length === 1);
   session.handleMessage(message("two"), false);
-  await until(() => transport.reactions.length === 2);
+  await until(() => orchestrator.calls.length === 2);
   session.handleMessage(message("three"), false);
-  await until(() => orchestrator.calls.length === 3);
-  session.handleMessage(message("four"), false);
-  await until(() => transport.messages.length === 2 && presence.values.at(-1)?.status === "idle");
+  await until(() => presence.values.at(-1)?.status === "idle");
 
   assert.deepEqual(
     transport.messages.map(({ text }) => text),
-    ["hello", "later"],
-  );
-  assert.deepEqual(
-    transport.reactions.map(({ messageId, emoji }) => ({ messageId, emoji })),
-    [
-      { messageId: "one", emoji: "👋" },
-      { messageId: "two", emoji: "👍" },
-      { messageId: "four", emoji: "😴" },
-    ],
+    ["hello"],
   );
   assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
   assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));

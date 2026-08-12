@@ -5,7 +5,7 @@ import { findMatchingMember, UserMentionDirectory } from "../DiscordDirectory.js
 import type { DiscordGateway } from "../DiscordGateway.js";
 import { parseArguments, sanitizeText, sendToolStatus, toolFailure } from "./toolSupport.js";
 
-export type RememberPersonToolDependencies = {
+export type RememberNameToolDependencies = {
   gateway: DiscordGateway;
   users: UserMentionDirectory;
   store: Pick<KnownPeopleStore, "remember">;
@@ -14,15 +14,15 @@ export type RememberPersonToolDependencies = {
 };
 
 /**
- * Creates the Discord-backed, non-terminal `remember_person` capability tool.
+ * Creates the Discord-backed, non-terminal `remember_name` capability tool.
  *
  * @param dependencies - Discord lookup, persistence, session, and logging capabilities.
  * @returns A capability tool that verifies and remembers one server member.
  */
-export function createRememberPersonTool(dependencies: RememberPersonToolDependencies): Tool {
+export function createRememberNameTool(dependencies: RememberNameToolDependencies): Tool {
   return {
     definition: {
-      name: "remember_person",
+      name: "remember_name",
       description:
         "Remember a verified Discord username's real or preferred name, then continue the turn.",
       parameters: {

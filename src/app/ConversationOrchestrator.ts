@@ -87,7 +87,7 @@ export class ConversationOrchestrator {
             return execution.outcome;
           }
 
-          if (execution.outcome.type === "reply" || execution.outcome.type === "react") {
+          if (execution.outcome.type === "reply") {
             return {
               ...execution.outcome,
               history: memory,
