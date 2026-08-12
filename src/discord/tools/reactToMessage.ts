@@ -20,7 +20,7 @@ export type ReactToMessageToolDependencies = {
 export function createReactToMessageTool(dependencies: ReactToMessageToolDependencies): Tool {
   return createActionableTool({
     definition: {
-      name: "react_to_message",
+      name: "react",
       description:
         "Add one emoji reaction to a message from the active conversation using its exact message_id.",
       parameters: {

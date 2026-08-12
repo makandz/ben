@@ -65,6 +65,7 @@ class FakeGateway implements DiscordGateway {
   async addReaction() {}
   async sendTyping() {}
   setPresence() {}
+  setCustomStatus() {}
   async registerCommand(): Promise<"registered"> {
     return "registered";
   }

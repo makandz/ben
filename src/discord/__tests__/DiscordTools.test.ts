@@ -23,6 +23,7 @@ import { createScheduledMessageTool } from "../tools/createScheduledMessage.js";
 import { createReactToMessageTool } from "../tools/reactToMessage.js";
 import { createRememberNameTool } from "../tools/rememberName.js";
 import { createSendMessageTool } from "../tools/sendChannelMessage.js";
+import { createUpdateCustomStatusTool } from "../tools/updateCustomStatus.js";
 
 const general: DiscordChannel = { id: "general", name: "general", guildId: "guild" };
 const plans: DiscordChannel = { id: "plans", name: "plans", guildId: "guild" };
@@ -93,6 +94,73 @@ test("remember-name controls empty, ambiguous, duplicate, and lookup failures", 
     JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),
     /Discord unavailable/,
   );
+});
+
+test("custom-status tool sets, resets, and reports the global status", async () => {
+  const gateway = new FakeGateway();
+  const tool = createUpdateCustomStatusTool({
+    gateway,
+    store: {
+      async set(status) {
+        gateway.storedCustomStatuses.push(status);
+      },
+    },
+    getActiveChannelId: () => "general",
+    logger,
+  });
+
+  assert.deepEqual(await execute(tool, { emoji: " 🍕 ", content: " making   pizza " }), {
+    type: "continue",
+    result: { ok: true, emoji: "🍕", content: "making pizza", reset: false },
+  });
+  assert.deepEqual(await execute(tool, { emoji: "🤔", content: null }), {
+    type: "continue",
+    result: { ok: true, emoji: "🤔", content: null, reset: false },
+  });
+  assert.deepEqual(await execute(tool, { emoji: null, content: " thinking " }), {
+    type: "continue",
+    result: { ok: true, emoji: null, content: "thinking", reset: false },
+  });
+  assert.deepEqual(await execute(tool, { emoji: null, content: null }), {
+    type: "continue",
+    result: { ok: true, emoji: null, content: null, reset: true },
+  });
+  assert.deepEqual(gateway.customStatuses, ["🍕 making pizza", "🤔", "thinking", undefined]);
+  assert.deepEqual(gateway.storedCustomStatuses, ["🍕 making pizza", "🤔", "thinking", undefined]);
+  assert.deepEqual(
+    gateway.sent.map(({ content }) => content),
+    [
+      '> Updated my status to "🍕 making pizza"',
+      '> Updated my status to "🤔"',
+      '> Updated my status to "thinking"',
+      "> Reset my status",
+    ],
+  );
+});
+
+test("custom-status tool reports validation and Discord failures", async () => {
+  const gateway = new FakeGateway();
+  const tool = createUpdateCustomStatusTool({
+    gateway,
+    store: {
+      async set(status) {
+        gateway.storedCustomStatuses.push(status);
+      },
+    },
+    getActiveChannelId: () => "general",
+    logger,
+  });
+
+  assert.match(
+    JSON.stringify(await execute(tool, { emoji: "x".repeat(33), content: null })),
+    /at most 32/,
+  );
+  gateway.customStatusError = new Error("Discord unavailable");
+  assert.match(
+    JSON.stringify(await execute(tool, { emoji: null, content: "thinking" })),
+    /Discord unavailable/,
+  );
+  assert.match(gateway.sent.at(-1)?.content ?? "", /^> ⚠️ Failed to update my status/);
 });
 
 test("message sends one or more messages and defaults to continuing", async () => {
@@ -364,10 +432,17 @@ test("Discord capability tools register through the generic tool registry", () =
     getActiveChannelId: () => "general",
     isMessageInActiveConversation: () => true,
   });
+  const updateCustomStatus = createUpdateCustomStatusTool({
+    gateway,
+    store: { async set() {} },
+    getActiveChannelId: () => "general",
+    logger,
+  });
   const registry = new ToolRegistry([
     sendMessage,
     reactToMessage,
     rememberName,
+    updateCustomStatus,
     scheduledMessage,
     waitTool,
     sleepTool,
@@ -375,7 +450,15 @@ test("Discord capability tools register through the generic tool registry", () =
 
   assert.deepEqual(
     registry.definitions().map(({ name }) => name),
-    ["message", "react_to_message", "remember_name", "create_scheduled_message", "wait", "sleep"],
+    [
+      "message",
+      "react",
+      "remember_name",
+      "update_status",
+      "create_scheduled_message",
+      "wait",
+      "sleep",
+    ],
   );
 });
 
@@ -462,6 +545,9 @@ class FakeGateway implements DiscordGateway {
   memberError: unknown;
   sent: Array<{ channelId: string; content: string; options: DiscordSendOptions }> = [];
   reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
+  customStatuses: Array<string | undefined> = [];
+  storedCustomStatuses: Array<string | undefined> = [];
+  customStatusError: unknown;
   setHandlers(_handlers: DiscordGatewayHandlers): void {}
   async login(_token: string): Promise<void> {}
   async destroy(): Promise<void> {}
@@ -487,6 +573,10 @@ class FakeGateway implements DiscordGateway {
   }
   async sendTyping(_channelId: string): Promise<void> {}
   setPresence(_status: "idle" | "online"): void {}
+  setCustomStatus(content: string | undefined): void {
+    if (this.customStatusError !== undefined) throw this.customStatusError;
+    this.customStatuses.push(content);
+  }
   async registerCommand(): Promise<"registered"> {
     return "registered";
   }

@@ -78,6 +78,7 @@ test("builds all optional prompt context in stable order", () => {
     knownPeople: { makan: { name: "Makan" } },
     includeKnownPeople: true,
     currentBotTime: "Monday at noon",
+    currentCustomStatus: "🍕 making pizza",
     pingedByUsername: "makan",
     recentConversationSummaries: [{ summary: "They discussed lunch." }],
   });
@@ -86,6 +87,7 @@ test("builds all optional prompt context in stable order", () => {
     result,
     [
       "Current bot time: Monday at noon.",
+      'Current Discord custom status: "🍕 making pizza".',
       "Known people:\n- makan is Makan",
       "Recent conversations:\n- They discussed lunch.",
       "Ben was pinged by makan (Makan).",
@@ -93,6 +95,16 @@ test("builds all optional prompt context in stable order", () => {
       "New messages:\n<message_id:2> makan (Makan): hello",
     ].join("\n\n"),
   );
+});
+
+test("formats a reset Discord custom status explicitly", () => {
+  const result = buildUserPrompt({
+    recentContext: [],
+    messages: [{ ...messageBase, id: "1", username: "makan", content: "hello" }],
+    currentCustomStatus: null,
+  });
+
+  assert.match(result, /^Current Discord custom status: none\./);
 });
 
 test("loads the copied system prompt and falls back for a missing file", async () => {

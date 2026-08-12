@@ -12,6 +12,7 @@ export type UserPromptOptions = {
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
   currentBotTime?: string;
+  currentCustomStatus?: string | null;
   pingedByUsername?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
 };
@@ -51,6 +52,14 @@ export function buildUserPrompt(options: UserPromptOptions): string {
 
   if (options.currentBotTime !== undefined) {
     sections.push(`Current bot time: ${options.currentBotTime}.`);
+  }
+
+  if (options.currentCustomStatus !== undefined) {
+    sections.push(
+      options.currentCustomStatus === null
+        ? "Current Discord custom status: none."
+        : `Current Discord custom status: ${JSON.stringify(options.currentCustomStatus)}.`,
+    );
   }
 
   if (options.includeKnownPeople === true) {

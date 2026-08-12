@@ -13,6 +13,7 @@ import { createScheduledMessageTool } from "../discord/tools/createScheduledMess
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
 import { createReactToMessageTool } from "../discord/tools/reactToMessage.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
+import { createUpdateCustomStatusTool } from "../discord/tools/updateCustomStatus.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
 import { formatBotTime } from "../scheduling/scheduleTime.js";
@@ -21,6 +22,7 @@ import {
   SCHEDULE_TIME_ZONE,
 } from "../scheduling/ScheduledMessageScheduler.js";
 import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js";
+import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
@@ -30,6 +32,7 @@ const paths = {
   summaries: "logs/conversation-summaries.json",
   people: "logs/known-people.json",
   schedules: "logs/scheduled-messages.json",
+  customStatus: "logs/custom-status.json",
 } as const;
 
 export type Application = {
@@ -79,6 +82,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const summaries = new ConversationSummaryStore(paths.summaries, logger);
   const people = new KnownPeopleStore(paths.people, logger);
   const schedules = new ScheduledMessageStore(paths.schedules, logger);
+  const customStatus = new CustomStatusStore(paths.customStatus, logger);
   const scheduledScheduler = new ScheduledMessageScheduler(
     schedules,
     createScheduledMessageDelivery(gateway),
@@ -113,6 +117,14 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     }),
   );
   tools.register(
+    createUpdateCustomStatusTool({
+      gateway,
+      store: customStatus,
+      getActiveChannelId: () => session.getActiveChannelId(),
+      logger,
+    }),
+  );
+  tools.register(
     createScheduledMessageTool({
       gateway,
       users,
@@ -131,13 +143,14 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     presence,
     logger,
     {},
-    { summaries, knownPeople: people },
+    { summaries, knownPeople: people, customStatus },
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
   );
 
   let ready = false;
+  let restoredCustomStatus: string | undefined;
   const adapter = new DiscordAdapter(
     gateway,
     {
@@ -148,6 +161,11 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         if (ready) return;
         ready = true;
         presence.setPresence({ status: "idle" });
+        try {
+          gateway.setCustomStatus(restoredCustomStatus);
+        } catch (error) {
+          logger.warn("discord.custom_status_restore_failed", { error: String(error) });
+        }
         void scheduledScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
@@ -163,7 +181,10 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   );
 
   return {
-    start: () => adapter.start(env.discordToken),
+    async start() {
+      restoredCustomStatus = await customStatus.get();
+      await adapter.start(env.discordToken);
+    },
     async stop() {
       session.stop();
       scheduledScheduler.stop();

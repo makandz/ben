@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { ConversationSummaryStore } from "../ConversationSummaryStore.js";
+import { CustomStatusStore } from "../CustomStatusStore.js";
 import { KnownPeopleStore } from "../KnownPeopleStore.js";
 import { ScheduledMessageStore } from "../ScheduledMessageStore.js";
 
@@ -14,6 +15,34 @@ const logger = {
     warnings.push(event);
   },
 };
+
+test("custom-status store atomically persists and resets the rendered status", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "custom-status.json");
+  const store = new CustomStatusStore(filePath, logger);
+
+  assert.equal(await store.get(), undefined);
+  await store.set("🍕 making pizza");
+  assert.equal(await store.get(), "🍕 making pizza");
+  assert.deepEqual(JSON.parse(await readFile(filePath, "utf8")), {
+    version: 1,
+    status: "🍕 making pizza",
+  });
+  await store.set(undefined);
+  assert.equal(await store.get(), undefined);
+  assert.deepEqual(await readdir(directory), ["custom-status.json"]);
+});
+
+test("custom-status store contains malformed data", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "custom-status.json");
+  const store = new CustomStatusStore(filePath, logger);
+
+  await writeFile(filePath, JSON.stringify({ status: 42 }));
+  assert.equal(await store.get(), undefined);
+  await writeFile(filePath, "not json");
+  assert.equal(await store.get(), undefined);
+});
 
 test("summary store reads the current shape, bounds entries, and writes atomically", async (t) => {
   const directory = await tempDirectory(t);

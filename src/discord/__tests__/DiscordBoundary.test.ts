@@ -203,6 +203,7 @@ class FakeDiscordGateway implements DiscordGateway {
   sent: Array<{ channelId: string; content: string; options: DiscordSendOptions }> = [];
   typing: string[] = [];
   presences: Array<"idle" | "online"> = [];
+  customStatuses: Array<string | undefined> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
   reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
 
@@ -240,6 +241,9 @@ class FakeDiscordGateway implements DiscordGateway {
   }
   setPresence(status: "idle" | "online"): void {
     this.presences.push(status);
+  }
+  setCustomStatus(content: string | undefined): void {
+    this.customStatuses.push(content);
   }
   async registerCommand(): Promise<"registered"> {
     return "registered";
