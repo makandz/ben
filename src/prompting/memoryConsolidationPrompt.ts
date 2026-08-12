@@ -14,7 +14,7 @@ const fallbackPrompt = [
  * @returns File content or a safe fallback when the asset cannot be read.
  */
 export async function loadMemoryConsolidationPrompt(
-  path = new URL("./memory-consolidation.txt", import.meta.url),
+  path = new URL("../prompts/memory-consolidation.md", import.meta.url),
 ): Promise<string> {
   try {
     return await readFile(path, "utf8");
