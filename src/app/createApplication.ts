@@ -69,7 +69,12 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
 
   let session: BotSession;
   const tools = new ToolRegistry([waitTool, sleepTool]);
-  tools.register(createSendMessageTool());
+  tools.register(
+    createSendMessageTool({
+      transport,
+      getActiveChannelId: () => session.getActiveChannelId(),
+    }),
+  );
   tools.register(
     createRememberPersonTool({
       gateway,

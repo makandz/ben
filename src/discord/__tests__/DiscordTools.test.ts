@@ -92,14 +92,67 @@ test("remember-person controls empty, ambiguous, duplicate, and lookup failures"
   );
 });
 
-test("send-message preserves terminal current-channel behavior", async () => {
-  const tool = createSendTool();
+test("message sends one or more messages and defaults to continuing", async () => {
+  const transport = new FakeMessageTransport();
+  const tool = createSendTool(transport);
   assert.deepEqual(await execute(tool, { text: " hello " }), {
-    type: "finish",
-    result: { ok: true, pausedUntil: "new_human_message" },
-    outcome: { type: "reply", text: "hello" },
+    type: "continue",
+    result: { ok: true, sentCount: 1 },
   });
-  assert.match(JSON.stringify(await execute(tool, { text: " " })), /text is required/);
+  assert.deepEqual(
+    await execute(tool, {
+      text: [" first ", "second"],
+      next_action: "wait",
+      sleep_summary: null,
+    }),
+    {
+      type: "finish",
+      result: { ok: true, sentCount: 2 },
+      outcome: { type: "wait" },
+    },
+  );
+  assert.deepEqual(transport.messages, ["hello", "first", "second"]);
+  assert.match(JSON.stringify(await execute(tool, { text: " " })), /each message must be/);
+});
+
+test("message sleeps with a summary only after complete delivery", async () => {
+  const transport = new FakeMessageTransport();
+  const tool = createSendTool(transport);
+  assert.deepEqual(
+    await execute(tool, {
+      text: ["one", "two"],
+      next_action: "sleep",
+      sleep_summary: " Finished the work. ",
+    }),
+    {
+      type: "finish",
+      result: { ok: true, sentCount: 2 },
+      outcome: { type: "sleep", summary: "Finished the work." },
+    },
+  );
+
+  const invalid = await execute(tool, {
+    text: "not sent",
+    next_action: "sleep",
+    sleep_summary: null,
+  });
+  assert.match(JSON.stringify(invalid), /sleep_summary is required/);
+  assert.deepEqual(transport.messages, ["one", "two"]);
+});
+
+test("message reports partial delivery and does not apply its next action", async () => {
+  const transport = new FakeMessageTransport(1);
+  const result = await execute(createSendTool(transport), {
+    text: ["sent", "failed", "not attempted"],
+    next_action: "sleep",
+    sleep_summary: "Should not sleep.",
+  });
+
+  assert.deepEqual(result, {
+    type: "continue",
+    result: { ok: false, error: "Error: send failed", sentCount: 1 },
+  });
+  assert.deepEqual(transport.messages, ["sent"]);
 });
 
 test("scheduled-message tool verifies targets and stores a future local schedule", async () => {
@@ -275,8 +328,11 @@ test("Discord capability tools register through the generic tool registry", () =
   );
 });
 
-function createSendTool(): Tool {
-  return createSendMessageTool();
+function createSendTool(transport = new FakeMessageTransport()): Tool {
+  return createSendMessageTool({
+    transport,
+    getActiveChannelId: () => "general",
+  });
 }
 
 function createScheduleTool(
@@ -332,6 +388,17 @@ async function execute(tool: Tool, argumentsValue: unknown) {
     name: tool.definition.name,
     arguments: argumentsValue,
   });
+}
+
+class FakeMessageTransport {
+  messages: string[] = [];
+
+  constructor(private readonly failAt?: number) {}
+
+  async sendMessage(_channelId: string, text: string): Promise<void> {
+    if (this.messages.length === this.failAt) throw new Error("send failed");
+    this.messages.push(text);
+  }
 }
 
 class FakeGateway implements DiscordGateway {
