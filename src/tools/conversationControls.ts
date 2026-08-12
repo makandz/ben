@@ -1,7 +1,4 @@
 import type { Tool, ToolResult } from "./Tool.js";
-import { isSingleUnicodeEmoji } from "../util/emoji.js";
-
-const nullableString = { type: ["string", "null"] };
 
 /** Creates the standard object schema used by conversation controls. */
 function createObjectSchema(
@@ -55,28 +52,15 @@ export const waitTool: Tool = {
 export const sleepTool: Tool = {
   definition: {
     name: "sleep",
-    description: "Optionally reply or react, save a summary, and sleep.",
-    parameters: createObjectSchema(
-      {
-        text: nullableString,
-        reaction: nullableString,
-        summary: { type: "string" },
-      },
-      ["text", "reaction", "summary"],
-    ),
+    description: "Save a conversation summary and sleep.",
+    parameters: createObjectSchema({ summary: { type: "string" } }, ["summary"]),
   },
   async execute(call) {
     const input = parseArguments(call.arguments);
-    const message = parseValue(input.text);
-    const reaction = parseValue(input.reaction);
     const summary = parseValue(input.summary);
 
     if (summary.length === 0) {
       return validationFailure("summary is required");
-    }
-
-    if (reaction.length > 0 && !isSingleUnicodeEmoji(reaction)) {
-      return validationFailure("reaction must be exactly one standard Unicode emoji");
     }
 
     return {
@@ -85,8 +69,6 @@ export const sleepTool: Tool = {
       outcome: {
         type: "sleep",
         summary,
-        ...(message.length > 0 ? { text: message } : {}),
-        ...(reaction.length > 0 ? { reaction } : {}),
       },
     };
   },

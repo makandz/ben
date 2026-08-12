@@ -176,24 +176,6 @@ export class DiscordJsGateway implements DiscordGateway {
   }
 
   /**
-   * Adds a reaction to a message in a text channel.
-   *
-   * @param channelId - Channel containing the target message.
-   * @param messageId - Target Discord message identifier.
-   * @param emoji - Unicode emoji to apply.
-   * @returns A promise that resolves after Discord applies the reaction.
-   * @throws When the destination channel is not text-based.
-   */
-  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
-    const channel = await this.client.channels.fetch(channelId);
-    if (!channel?.isTextBased() || !("messages" in channel)) {
-      throw new Error("Discord reaction channel is not text-based.");
-    }
-    const message = await channel.messages.fetch(messageId);
-    await message.react(emoji);
-  }
-
-  /**
    * Applies Ben's online/idle state.
    *
    * @param status - Discord availability state.

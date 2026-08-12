@@ -13,10 +13,7 @@ export type ToolResult =
   | { type: "finish"; result: unknown; outcome: TerminalToolOutcome };
 
 export type TerminalToolOutcome =
-  | { type: "reply"; text: string; reaction?: string }
-  | { type: "react"; reaction: string }
-  | { type: "wait" }
-  | { type: "sleep"; summary: string; text?: string; reaction?: string };
+  { type: "reply"; text: string } | { type: "wait" } | { type: "sleep"; summary: string };
 
 export type Tool = {
   definition: ToolDefinition;

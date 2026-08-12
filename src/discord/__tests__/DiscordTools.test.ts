@@ -430,7 +430,6 @@ class FakeGateway implements DiscordGateway {
     this.sent.push({ channelId, content, options });
   }
   async sendTyping(_channelId: string): Promise<void> {}
-  async addReaction(_channelId: string, _messageId: string, _emoji: string): Promise<void> {}
   setPresence(_status: "idle" | "online"): void {}
   async registerCommand(): Promise<"registered"> {
     return "registered";
