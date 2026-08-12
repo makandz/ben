@@ -1,5 +1,6 @@
 import type { Logger } from "../logger.js";
 import type { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
+import type { MemoryConsolidationResult } from "../memory/MemoryConsolidator.js";
 import type { DiscordCommandEvent, DiscordGateway } from "./DiscordGateway.js";
 
 export const DREAM_START_MESSAGE = "> 💤 Ben is dreaming...";
@@ -9,6 +10,16 @@ export const consolidateCommand = {
   name: "consolidate",
   description: "Consolidate Ben's short-term memories.",
 } as const;
+
+/**
+ * Formats the short-term records cleared by one successful dream.
+ *
+ * @param result - Counts captured from the consolidated short-term snapshot.
+ * @returns A Discord blockquote describing both cleared record groups.
+ */
+export function formatConsolidationResult(result: MemoryConsolidationResult): string {
+  return `> Cleared ${formatCount(result.conversationSummaries, "conversation summary", "conversation summaries")} and ${formatCount(result.shortTermMemories, "short-term memory", "short-term memories")}.`;
+}
 
 /**
  * Registers or refreshes the global memory consolidation command.
@@ -64,7 +75,8 @@ export async function handleConsolidateCommand(
         started = true;
         await interaction.reply(DREAM_START_MESSAGE);
       },
-      async completed() {
+      async completed(result) {
+        await sendChannelMessage(interaction.channelId, formatConsolidationResult(result));
         await sendChannelMessage(interaction.channelId, DREAM_COMPLETE_MESSAGE);
       },
       async failed() {
@@ -86,4 +98,9 @@ export async function handleConsolidateCommand(
   } catch (error) {
     logger.warn("discord.consolidate_command_failed", { error: String(error) });
   }
+}
+
+/** Formats one count with singular or plural wording. */
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${String(count)} ${count === 1 ? singular : plural}`;
 }

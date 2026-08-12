@@ -15,6 +15,11 @@ const quietReporter = {
   async failed() {},
 };
 
+const consolidationResult = {
+  conversationSummaries: 2,
+  shortTermMemories: 1,
+};
+
 test("initializes a 24-hour due time without invoking consolidation", async (t) => {
   const scheduled: Date[] = [];
   const scheduler = new MemoryConsolidationScheduler(
@@ -60,7 +65,7 @@ test("skips an empty due buffer and advances the schedule without dreaming", asy
       },
       async consolidate() {
         consolidated += 1;
-        return "consolidated" as const;
+        return consolidationResult;
       },
     },
     {
@@ -103,7 +108,7 @@ test("scheduled consolidation reports dream start and completion", async (t) => 
       },
       async consolidate() {
         events.push("consolidate");
-        return "consolidated" as const;
+        return consolidationResult;
       },
     },
     {
@@ -124,8 +129,10 @@ test("scheduled consolidation reports dream start and completion", async (t) => 
       async started() {
         events.push("started");
       },
-      async completed() {
-        events.push("completed");
+      async completed(result) {
+        events.push(
+          `completed:${String(result.conversationSummaries)}:${String(result.shortTermMemories)}`,
+        );
       },
       async failed() {
         events.push("failed");
@@ -138,7 +145,7 @@ test("scheduled consolidation reports dream start and completion", async (t) => 
 
   await scheduler.start();
 
-  assert.deepEqual(events, ["started", "consolidate", "finish", "completed"]);
+  assert.deepEqual(events, ["started", "consolidate", "finish", "completed:2:1"]);
 });
 
 test("defers while active and completes once dreaming can be acquired", async (t) => {
@@ -153,7 +160,7 @@ test("defers while active and completes once dreaming can be acquired", async (t
       },
       async consolidate() {
         consolidated += 1;
-        return "consolidated" as const;
+        return consolidationResult;
       },
     },
     {
@@ -201,7 +208,7 @@ test("manual consolidation reports dreaming and resets the due time", async (t) 
       },
       async consolidate() {
         events.push("consolidate");
-        return "consolidated" as const;
+        return consolidationResult;
       },
     },
     {

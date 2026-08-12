@@ -11,6 +11,7 @@ import { DiscordTransport } from "../discord/DiscordTransport.js";
 import {
   DREAM_COMPLETE_MESSAGE,
   DREAM_START_MESSAGE,
+  formatConsolidationResult,
   handleConsolidateCommand,
   registerConsolidateCommand,
 } from "../discord/consolidateCommand.js";
@@ -196,7 +197,10 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     session,
     {
       started: () => sendConsolidationStatus(transport, logger, DREAM_START_MESSAGE),
-      completed: () => sendConsolidationStatus(transport, logger, DREAM_COMPLETE_MESSAGE),
+      completed: async (result) => {
+        await sendConsolidationStatus(transport, logger, formatConsolidationResult(result));
+        await sendConsolidationStatus(transport, logger, DREAM_COMPLETE_MESSAGE);
+      },
       failed: () =>
         sendConsolidationStatus(
           transport,

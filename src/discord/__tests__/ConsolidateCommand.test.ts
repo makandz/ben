@@ -55,9 +55,15 @@ test("shows the chosen dream start and completion messages", async () => {
   const interaction = recordingInteraction("admin");
   const channelMessages: Array<{ channelId: string; message: string }> = [];
   const scheduler = {
-    async consolidateNow(reporter: { started(): Promise<void>; completed(): Promise<void> }) {
+    async consolidateNow(reporter: {
+      started(): Promise<void>;
+      completed(result: {
+        conversationSummaries: number;
+        shortTermMemories: number;
+      }): Promise<void>;
+    }) {
       await reporter.started();
-      await reporter.completed();
+      await reporter.completed({ conversationSummaries: 3, shortTermMemories: 2 });
       return "consolidated" as const;
     },
   };
@@ -73,7 +79,13 @@ test("shows the chosen dream start and completion messages", async () => {
   );
 
   assert.deepEqual(interaction.replies, [DREAM_START_MESSAGE]);
-  assert.deepEqual(channelMessages, [{ channelId: "channel-1", message: DREAM_COMPLETE_MESSAGE }]);
+  assert.deepEqual(channelMessages, [
+    {
+      channelId: "channel-1",
+      message: "> Cleared 3 conversation summaries and 2 short-term memories.",
+    },
+    { channelId: "channel-1", message: DREAM_COMPLETE_MESSAGE },
+  ]);
 });
 
 test("reports empty, active, and already-running manual requests", async () => {

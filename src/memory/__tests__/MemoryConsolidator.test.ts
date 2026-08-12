@@ -78,7 +78,10 @@ test("consolidates with no tools and clears short-term data after writing", asyn
   });
 
   assert.equal(await consolidator.hasPendingMemory(), true);
-  assert.equal(await consolidator.consolidate(), "consolidated");
+  assert.deepEqual(await consolidator.consolidate(), {
+    conversationSummaries: 1,
+    shortTermMemories: 1,
+  });
   assert.equal(model.requests.length, 1);
   assert.equal(model.requests[0]?.instructions, "dream instructions");
   assert.deepEqual(model.requests[0]?.tools, []);

@@ -3,6 +3,11 @@ import type { Model } from "../model/Model.js";
 type Summary = { summary: string };
 type ShortTermMemory = { id: number; memory: string };
 
+export type MemoryConsolidationResult = {
+  conversationSummaries: number;
+  shortTermMemories: number;
+};
+
 type MemoryConsolidatorDependencies = {
   summaries: {
     list(): Promise<readonly Summary[]>;
@@ -49,10 +54,10 @@ export class MemoryConsolidator {
   /**
    * Rewrites long-term memory from a stable short-term snapshot.
    *
-   * @returns Whether consolidation was performed or skipped for lack of input.
+   * @returns Cleared record counts, or `skipped` when there was no input.
    * @throws When reading, model generation, validation, writing, or clearing fails.
    */
-  async consolidate(): Promise<"consolidated" | "skipped"> {
+  async consolidate(): Promise<MemoryConsolidationResult | "skipped"> {
     const [summaries, memories, longTermMemory] = await Promise.all([
       this.dependencies.summaries.list(),
       this.dependencies.shortTermMemories.list(),
@@ -86,7 +91,10 @@ export class MemoryConsolidator {
       this.dependencies.summaries.clear(),
       this.dependencies.shortTermMemories.clear(),
     ]);
-    return "consolidated";
+    return {
+      conversationSummaries: summaries.length,
+      shortTermMemories: memories.length,
+    };
   }
 }
 

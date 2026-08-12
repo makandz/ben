@@ -1,5 +1,5 @@
 import type { Logger } from "../logger.js";
-import type { MemoryConsolidator } from "./MemoryConsolidator.js";
+import type { MemoryConsolidationResult, MemoryConsolidator } from "./MemoryConsolidator.js";
 
 export const MEMORY_CONSOLIDATION_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 export const MEMORY_CONSOLIDATION_CHECK_MS = 30_000;
@@ -16,7 +16,7 @@ type DreamingLifecycle = {
 
 export type ConsolidationReporter = {
   started(): Promise<void>;
-  completed(): Promise<void>;
+  completed(result: MemoryConsolidationResult): Promise<void>;
   failed(error: unknown): Promise<void>;
 };
 
@@ -146,9 +146,12 @@ export class MemoryConsolidationScheduler {
 
   /** Runs one acquired dreaming phase and reports its Discord-visible lifecycle. */
   private async performConsolidation(reporter: ConsolidationReporter, now: Date): Promise<void> {
+    let result: MemoryConsolidationResult | undefined;
     try {
       await reporter.started();
-      await this.consolidator.consolidate();
+      const outcome = await this.consolidator.consolidate();
+      if (outcome === "skipped") throw new Error("Memory consolidation unexpectedly had no input.");
+      result = outcome;
       await this.scheduleNext(now);
     } catch (error) {
       await reporter.failed(error);
@@ -156,7 +159,7 @@ export class MemoryConsolidationScheduler {
     } finally {
       this.lifecycle.finishDreaming();
     }
-    await reporter.completed();
+    await reporter.completed(result);
   }
 
   /** Records a full interval after a completed or empty due check. */

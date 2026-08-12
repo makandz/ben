@@ -266,7 +266,6 @@ export class BotSession {
     this.history = [];
     this.presence.setPresence({ status: "online" });
     this.logger.info("session.wake", { channelId: first.channelId, messages: messages.length });
-    void this.logStatus("Woke up from a ping", { channelId: first.channelId });
     this.scheduleDebounce();
     this.resetIdleTimer();
   }
@@ -427,7 +426,6 @@ export class BotSession {
       await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
         this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
       });
-      await this.logStatus("Going back to sleep", { channelId, summary: outcome.summary });
       this.goToSleep("model");
       return;
     }
@@ -436,7 +434,6 @@ export class BotSession {
       await this.deliverOptionalMessage(channelId, outcome.text);
       this.history = [...outcome.history];
     } else if (outcome.type === "wait") {
-      await this.logStatus("Waiting for the next message", { channelId });
       this.history = [...outcome.history];
     } else {
       if (outcome.error instanceof ModelBudgetExceededError) {
@@ -530,16 +527,6 @@ export class BotSession {
     if (users === undefined) return;
     users.delete(userId);
     if (users.size === 0) this.typingByChannel.delete(channelId);
-  }
-
-  /** Contains operational status failures. */
-  private async logStatus(
-    message: string,
-    details?: Readonly<Record<string, unknown>>,
-  ): Promise<void> {
-    await this.transport.logStatus(message, details).catch((error: unknown) => {
-      this.logger.warn("chat.status_failed", { error: String(error) });
-    });
   }
 
   /** Cancels all timers owned by the session. */

@@ -194,7 +194,7 @@ test("queues pinged channels FIFO and promotes each only after sleep", async (t)
   assert.deepEqual(transport.messages, [{ channelId: "channel-c", text: "c active" }]);
 });
 
-test("applies reply, wait, and sleep outcomes through the transport", async (t) => {
+test("applies reply, wait, and sleep outcomes without lifecycle status messages", async (t) => {
   const history: ConversationItem[] = [{ type: "message", role: "assistant", text: "memory" }];
   const orchestrator = new ScriptedOrchestrator([
     {
@@ -219,8 +219,7 @@ test("applies reply, wait, and sleep outcomes through the transport", async (t) 
     transport.messages.map(({ text }) => text),
     ["hello"],
   );
-  assert.ok(transport.statuses.some(({ message }) => message === "Waiting for the next message"));
-  assert.ok(transport.statuses.some(({ message }) => message === "Going back to sleep"));
+  assert.deepEqual(transport.statuses, []);
 });
 
 test("idle sleep clears history before a later wake", async (t) => {
