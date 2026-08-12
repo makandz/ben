@@ -1,4 +1,4 @@
-import type { ChatTransport } from "../app/ChatTransport.js";
+import type { ChatTransport, DeliveredMessage, SendMessageOptions } from "../app/ChatTransport.js";
 import type { Logger } from "../logger.js";
 import {
   ChannelMentionDirectory,
@@ -18,6 +18,7 @@ export class DiscordTransport implements ChatTransport {
    * @param channels - Shared verified channel mention directory.
    * @param logChannelId - Optional Discord destination for operational status.
    * @param logger - Logger used when optional status delivery is unavailable.
+   * @param onMessageSent - Optional callback that records successful conversational delivery.
    */
   constructor(
     private readonly gateway: DiscordGateway,
@@ -25,6 +26,11 @@ export class DiscordTransport implements ChatTransport {
     private readonly channels: ChannelMentionDirectory,
     private readonly logChannelId: string | undefined,
     private readonly logger: Pick<Logger, "debug">,
+    private readonly onMessageSent?: (
+      channelId: string,
+      text: string,
+      delivery: DeliveredMessage,
+    ) => void,
   ) {}
 
   /**
@@ -32,10 +38,15 @@ export class DiscordTransport implements ChatTransport {
    *
    * @param channelId - Destination Discord channel identifier.
    * @param text - Message text to send.
-   * @returns A promise that resolves after delivery.
+   * @param options - Optional Discord-independent delivery behavior.
+   * @returns The real Discord identifier and creation time of the delivered message.
    * @throws When the destination channel cannot be found or is not sendable.
    */
-  async sendMessage(channelId: string, text: string): Promise<void> {
+  async sendMessage(
+    channelId: string,
+    text: string,
+    options: SendMessageOptions = {},
+  ): Promise<DeliveredMessage> {
     const channel = await this.gateway.fetchChannel(channelId);
     if (channel === undefined) throw new Error("Discord response channel was not found.");
 
@@ -44,9 +55,12 @@ export class DiscordTransport implements ChatTransport {
     await resolveUnknownMentions(this.gateway, channel, safeText, this.users, this.channels);
     const withChannels = this.channels.convertNamesToMentions(safeText);
     const withUsers = this.users.convertUsernamesToMentions(withChannels);
-    await this.gateway.sendMessage(channelId, escapeBroadcastMentions(withUsers), {
+    const delivery = await this.gateway.sendMessage(channelId, escapeBroadcastMentions(withUsers), {
       allowUserMentions: true,
+      ...(options.replyTo === undefined ? {} : { replyToMessageId: options.replyTo }),
     });
+    this.onMessageSent?.(channelId, text, delivery);
+    return delivery;
   }
 
   /**

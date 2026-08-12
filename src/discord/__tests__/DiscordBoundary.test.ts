@@ -105,15 +105,21 @@ test("transport resolves unique names and sends only safe mentions", async () =>
   const gateway = new FakeDiscordGateway();
   gateway.channels = [general, { id: "channel-2", name: "plans", guildId: "guild-1" }];
   gateway.members = [{ ...human, displayName: "Makan A" }];
+  const recorded: unknown[] = [];
   const transport = new DiscordTransport(
     gateway,
     new UserMentionDirectory(),
     new ChannelMentionDirectory(),
     "log-channel",
     { debug() {} },
+    (channelId, text, delivery) => recorded.push({ channelId, text, delivery }),
   );
 
-  await transport.sendMessage("channel-1", "hey @makan in #plans, not @everyone or @here");
+  const delivery = await transport.sendMessage(
+    "channel-1",
+    "hey @makan in #plans, not @everyone or @here",
+    { replyTo: "message-1" },
+  );
   await transport.logStatus("@everyone diagnostics");
   await transport.sendTyping("channel-1");
 
@@ -121,7 +127,7 @@ test("transport resolves unique names and sends only safe mentions", async () =>
     {
       channelId: "channel-1",
       content: "hey <@user-1> in <#channel-2>, not @\u200Beveryone or @\u200Bhere",
-      options: { allowUserMentions: true },
+      options: { allowUserMentions: true, replyToMessageId: "message-1" },
     },
     {
       channelId: "log-channel",
@@ -131,6 +137,14 @@ test("transport resolves unique names and sends only safe mentions", async () =>
   ]);
   assert.deepEqual(gateway.typing, ["channel-1"]);
   assert.deepEqual(gateway.memberSearches, [{ guildId: "guild-1", query: "makan" }]);
+  assert.deepEqual(delivery, { id: "sent-1", createdAt: 1 });
+  assert.deepEqual(recorded, [
+    {
+      channelId: "channel-1",
+      text: "hey @makan in #plans, not @everyone or @here",
+      delivery: { id: "sent-1", createdAt: 1 },
+    },
+  ]);
 });
 
 test("transport does not guess ambiguous users or channels", async () => {
@@ -190,6 +204,7 @@ class FakeDiscordGateway implements DiscordGateway {
   typing: string[] = [];
   presences: Array<"idle" | "online"> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
+  reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
 
   setHandlers(handlers: DiscordGatewayHandlers): void {
     this.handlers = handlers;
@@ -213,12 +228,12 @@ class FakeDiscordGateway implements DiscordGateway {
   async fetchGuildChannels(): Promise<readonly DiscordChannel[]> {
     return this.channels;
   }
-  async sendMessage(
-    channelId: string,
-    content: string,
-    options: DiscordSendOptions,
-  ): Promise<void> {
+  async sendMessage(channelId: string, content: string, options: DiscordSendOptions) {
     this.sent.push({ channelId, content, options });
+    return { id: `sent-${String(this.sent.length)}`, createdAt: this.sent.length };
+  }
+  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.reactions.push({ channelId, messageId, emoji });
   }
   async sendTyping(channelId: string): Promise<void> {
     this.typing.push(channelId);

@@ -5,6 +5,7 @@ import type {
   CreateScheduledMessageInput,
   ScheduledMessage,
 } from "../../storage/ScheduledMessageStore.js";
+import type { SendMessageOptions } from "../../app/ChatTransport.js";
 import type { Tool } from "../../tools/Tool.js";
 import { ToolRegistry } from "../../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../../tools/conversationControls.js";
@@ -19,6 +20,7 @@ import type {
 } from "../DiscordGateway.js";
 import { createScheduledMessageDelivery } from "../ScheduledMessageDelivery.js";
 import { createScheduledMessageTool } from "../tools/createScheduledMessage.js";
+import { createReactToMessageTool } from "../tools/reactToMessage.js";
 import { createRememberNameTool } from "../tools/rememberName.js";
 import { createSendMessageTool } from "../tools/sendChannelMessage.js";
 
@@ -98,7 +100,7 @@ test("message sends one or more messages and defaults to continuing", async () =
   const tool = createSendTool(transport);
   assert.deepEqual(await execute(tool, { text: " hello " }), {
     type: "continue",
-    result: { ok: true, sentCount: 1 },
+    result: { ok: true, sentCount: 1, messageIds: ["sent-1"] },
   });
   assert.deepEqual(
     await execute(tool, {
@@ -108,7 +110,7 @@ test("message sends one or more messages and defaults to continuing", async () =
     }),
     {
       type: "finish",
-      result: { ok: true, sentCount: 2 },
+      result: { ok: true, sentCount: 2, messageIds: ["sent-2", "sent-3"] },
       outcome: { type: "wait" },
     },
   );
@@ -127,7 +129,7 @@ test("message sleeps with a summary only after complete delivery", async () => {
     }),
     {
       type: "finish",
-      result: { ok: true, sentCount: 2 },
+      result: { ok: true, sentCount: 2, messageIds: ["sent-1", "sent-2"] },
       outcome: { type: "sleep", summary: "Finished the work." },
     },
   );
@@ -151,9 +153,51 @@ test("message reports partial delivery and does not apply its next action", asyn
 
   assert.deepEqual(result, {
     type: "continue",
-    result: { ok: false, error: "Error: send failed", sentCount: 1 },
+    result: { ok: false, error: "Error: send failed", sentCount: 1, messageIds: ["sent-1"] },
   });
   assert.deepEqual(transport.messages, ["sent"]);
+});
+
+test("message replies only with the first text and validates the reference", async () => {
+  const transport = new FakeMessageTransport();
+  const tool = createSendTool(transport);
+
+  await execute(tool, { text: ["reply", "follow-up"], reply_to: "message-1" });
+  assert.deepEqual(transport.options, [{ replyTo: "message-1" }, undefined]);
+
+  const rejected = await execute(tool, { text: "not sent", reply_to: "unknown" });
+  assert.match(JSON.stringify(rejected), /reply_to is not in the active conversation/);
+  assert.deepEqual(transport.messages, ["reply", "follow-up"]);
+});
+
+test("reaction targets only an exact message from the active conversation", async () => {
+  const gateway = new FakeGateway();
+  const tool = createReactToMessageTool({
+    gateway,
+    getActiveChannelId: () => "general",
+    isMessageInActiveConversation: (messageId) => messageId === "message-1",
+  });
+
+  assert.deepEqual(
+    await execute(tool, {
+      message_id: "message-1",
+      emoji: "🔥",
+      next_action: "wait",
+      sleep_summary: null,
+    }),
+    {
+      type: "finish",
+      result: { ok: true, messageId: "message-1", emoji: "🔥" },
+      outcome: { type: "wait" },
+    },
+  );
+  assert.deepEqual(gateway.reactions, [
+    { channelId: "general", messageId: "message-1", emoji: "🔥" },
+  ]);
+
+  const rejected = await execute(tool, { message_id: "not-visible", emoji: "👍" });
+  assert.match(JSON.stringify(rejected), /not in the active conversation/);
+  assert.equal(gateway.reactions.length, 1);
 });
 
 test("scheduled-message tool verifies targets and stores a future local schedule", async () => {
@@ -315,8 +359,14 @@ test("Discord capability tools register through the generic tool registry", () =
     },
     [],
   );
+  const reactToMessage = createReactToMessageTool({
+    gateway,
+    getActiveChannelId: () => "general",
+    isMessageInActiveConversation: () => true,
+  });
   const registry = new ToolRegistry([
     sendMessage,
+    reactToMessage,
     rememberName,
     scheduledMessage,
     waitTool,
@@ -325,7 +375,7 @@ test("Discord capability tools register through the generic tool registry", () =
 
   assert.deepEqual(
     registry.definitions().map(({ name }) => name),
-    ["message", "remember_name", "create_scheduled_message", "wait", "sleep"],
+    ["message", "react_to_message", "remember_name", "create_scheduled_message", "wait", "sleep"],
   );
 });
 
@@ -333,6 +383,7 @@ function createSendTool(transport = new FakeMessageTransport()): Tool {
   return createSendMessageTool({
     transport,
     getActiveChannelId: () => "general",
+    isMessageInActiveConversation: (messageId) => messageId === "message-1",
   });
 }
 
@@ -393,12 +444,15 @@ async function execute(tool: Tool, argumentsValue: unknown) {
 
 class FakeMessageTransport {
   messages: string[] = [];
+  options: Array<SendMessageOptions | undefined> = [];
 
   constructor(private readonly failAt?: number) {}
 
-  async sendMessage(_channelId: string, text: string): Promise<void> {
+  async sendMessage(_channelId: string, text: string, options?: SendMessageOptions) {
     if (this.messages.length === this.failAt) throw new Error("send failed");
     this.messages.push(text);
+    this.options.push(options);
+    return { id: `sent-${String(this.messages.length)}`, createdAt: this.messages.length };
   }
 }
 
@@ -407,6 +461,7 @@ class FakeGateway implements DiscordGateway {
   members: DiscordMember[] = [];
   memberError: unknown;
   sent: Array<{ channelId: string; content: string; options: DiscordSendOptions }> = [];
+  reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
   setHandlers(_handlers: DiscordGatewayHandlers): void {}
   async login(_token: string): Promise<void> {}
   async destroy(): Promise<void> {}
@@ -423,12 +478,12 @@ class FakeGateway implements DiscordGateway {
   async fetchGuildChannels(): Promise<readonly DiscordChannel[]> {
     return this.channels;
   }
-  async sendMessage(
-    channelId: string,
-    content: string,
-    options: DiscordSendOptions,
-  ): Promise<void> {
+  async sendMessage(channelId: string, content: string, options: DiscordSendOptions) {
     this.sent.push({ channelId, content, options });
+    return { id: `sent-${String(this.sent.length)}`, createdAt: this.sent.length };
+  }
+  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.reactions.push({ channelId, messageId, emoji });
   }
   async sendTyping(_channelId: string): Promise<void> {}
   setPresence(_status: "idle" | "online"): void {}

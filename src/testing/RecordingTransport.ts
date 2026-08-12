@@ -1,4 +1,4 @@
-import type { ChatTransport } from "../app/ChatTransport.js";
+import type { ChatTransport, DeliveredMessage } from "../app/ChatTransport.js";
 
 export type RecordedMessage = { channelId: string; text: string };
 
@@ -12,16 +12,19 @@ export class RecordingTransport implements ChatTransport {
   readonly messages: RecordedMessage[] = [];
   readonly typing: string[] = [];
   readonly statuses: RecordedStatus[] = [];
+  private messageSequence = 0;
 
   /**
    * Records one sent message.
    *
    * @param channelId - Destination channel identifier.
    * @param text - Message content.
-   * @returns A promise that resolves after recording.
+   * @returns A deterministic delivered-message identity for later assertions.
    */
-  async sendMessage(channelId: string, text: string): Promise<void> {
+  async sendMessage(channelId: string, text: string): Promise<DeliveredMessage> {
+    this.messageSequence += 1;
     this.messages.push({ channelId, text });
+    return { id: `sent-${String(this.messageSequence)}`, createdAt: this.messageSequence };
   }
 
   /**

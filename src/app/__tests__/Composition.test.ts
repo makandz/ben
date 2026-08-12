@@ -59,7 +59,10 @@ class FakeGateway implements DiscordGateway {
   async fetchGuildChannels() {
     return [];
   }
-  async sendMessage() {}
+  async sendMessage() {
+    return { id: "sent", createdAt: 0 };
+  }
+  async addReaction() {}
   async sendTyping() {}
   setPresence() {}
   async registerCommand(): Promise<"registered"> {

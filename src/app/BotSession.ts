@@ -81,7 +81,7 @@ export class BotSession {
   private debounceTimer: NodeJS.Timeout | undefined;
   private idleTimer: NodeJS.Timeout | undefined;
   private typingTimer: NodeJS.Timeout | undefined;
-  private botMessageSequence = 0;
+  private activeMessageIds = new Set<string>();
   private activeCreator: ActiveConversationUser | undefined;
 
   /**
@@ -145,6 +145,8 @@ export class BotSession {
       return;
     }
 
+    this.activeMessageIds.add(message.id);
+
     if (this.mode === "processing") {
       this.queuedDuringProcessing.push(message);
       return;
@@ -202,22 +204,23 @@ export class BotSession {
   /**
    * Adds successful bot output to a channel's bounded recent context.
    *
-   * @param channelId - Channel that received the bot message.
-   * @param content - Delivered message content.
+   * @param message - Successfully delivered bot message with its real Discord identifier.
    */
-  recordBotMessage(channelId: string, content: string): void {
-    this.botMessageSequence += 1;
-    const message: HumanMessage = {
-      id: `ben:${String(Date.now())}:${String(this.botMessageSequence)}`,
-      channelId,
-      userId: "ben",
-      username: "Ben",
-      content,
-      createdAt: Date.now(),
-    };
+  recordBotMessage(message: HumanMessage): void {
     this.rememberMessage(message);
-    const queued = this.queuedWakes.find((wake) => wake.channelId === channelId);
+    if (message.channelId === this.activeChannelId) this.activeMessageIds.add(message.id);
+    const queued = this.queuedWakes.find((wake) => wake.channelId === message.channelId);
     if (queued !== undefined) queued.messages.push(message);
+  }
+
+  /**
+   * Checks whether a Discord message identifier is present in the active transcript.
+   *
+   * @param messageId - Candidate target emitted by the model.
+   * @returns Whether the current conversation exposed that exact message.
+   */
+  isMessageInActiveConversation(messageId: string): boolean {
+    return this.activeMessageIds.has(messageId);
   }
 
   /** Starts a conversation from a ping or promoted queued wake. */
@@ -229,6 +232,7 @@ export class BotSession {
     this.activeChannelId = first.channelId;
     this.pendingBatch = messages;
     this.pendingRecentContext = recentContext;
+    this.activeMessageIds = new Set([...recentContext, ...messages].map((message) => message.id));
     this.queuedDuringProcessing = [];
     this.history = [];
     this.presence.setPresence({ status: "online" });
@@ -441,6 +445,7 @@ export class BotSession {
     this.pendingRecentContext = [];
     this.queuedDuringProcessing = [];
     this.history = [];
+    this.activeMessageIds.clear();
     this.activeCreator = undefined;
     this.typingByChannel.clear();
     this.presence.setPresence({ status: "idle" });

@@ -9,6 +9,7 @@ const MAX_MESSAGE_LENGTH = 2_000;
 export type SendMessageToolDependencies = {
   transport: Pick<ChatTransport, "sendMessage">;
   getActiveChannelId(): string | undefined;
+  isMessageInActiveConversation(messageId: string): boolean;
 };
 
 /**
@@ -38,8 +39,13 @@ export function createSendMessageTool(dependencies: SendMessageToolDependencies)
               },
             ],
           },
+          reply_to: {
+            type: ["string", "null"],
+            description:
+              "Exact message_id to reply to, or null for a normal message. With multiple texts, only the first is a reply.",
+          },
         },
-        required: ["text"],
+        required: ["text", "reply_to"],
       },
     },
     async execute(call) {
@@ -48,31 +54,62 @@ export function createSendMessageTool(dependencies: SendMessageToolDependencies)
       if (!messages.ok) {
         return { ok: false, result: { ok: false, error: messages.error } };
       }
+      const replyTo = parseReplyTo(input.reply_to);
+      if (!replyTo.ok) {
+        return { ok: false, result: { ok: false, error: replyTo.error } };
+      }
+      if (
+        replyTo.messageId !== undefined &&
+        !dependencies.isMessageInActiveConversation(replyTo.messageId)
+      ) {
+        return {
+          ok: false,
+          result: { ok: false, error: "reply_to is not in the active conversation" },
+        };
+      }
 
       const channelId = dependencies.getActiveChannelId();
       if (channelId === undefined) {
         return { ok: false, result: { ok: false, error: "no active Discord channel" } };
       }
 
-      let sentCount = 0;
+      const messageIds: string[] = [];
       try {
-        for (const text of messages.values) {
-          await dependencies.transport.sendMessage(channelId, text);
-          sentCount += 1;
+        for (const [index, text] of messages.values.entries()) {
+          const delivery = await dependencies.transport.sendMessage(
+            channelId,
+            text,
+            index === 0 && replyTo.messageId !== undefined
+              ? { replyTo: replyTo.messageId }
+              : undefined,
+          );
+          messageIds.push(delivery.id);
         }
       } catch (error) {
         return {
           ok: false,
-          result: { ok: false, error: String(error), sentCount },
+          result: { ok: false, error: String(error), sentCount: messageIds.length, messageIds },
         };
       }
 
-      return { ok: true, result: { ok: true, sentCount } };
+      return { ok: true, result: { ok: true, sentCount: messageIds.length, messageIds } };
     },
   });
 }
 
 type ParsedMessages = { ok: true; values: string[] } | { ok: false; error: string };
+type ParsedReplyTo = { ok: true; messageId?: string } | { ok: false; error: string };
+
+/** Parses an optional exact message reference without accepting other value types. */
+function parseReplyTo(value: unknown): ParsedReplyTo {
+  if (value === null || value === undefined) return { ok: true };
+  if (typeof value !== "string")
+    return { ok: false, error: "reply_to must be a message_id or null" };
+  const messageId = value.trim();
+  return messageId.length === 0
+    ? { ok: false, error: "reply_to must be a non-empty message_id or null" }
+    : { ok: true, messageId };
+}
 
 /** Validates and normalizes one message or an ordered message batch. */
 function parseMessages(value: unknown): ParsedMessages {
