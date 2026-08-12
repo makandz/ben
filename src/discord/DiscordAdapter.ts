@@ -1,16 +1,18 @@
 import type { HumanMessage } from "../app/types.js";
 import type { Logger } from "../logger.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "./DiscordDirectory.js";
-import type { DiscordGateway, DiscordMessageEvent, DiscordTypingEvent } from "./DiscordGateway.js";
+import type {
+  DiscordCommandEvent,
+  DiscordGateway,
+  DiscordMessageEvent,
+  DiscordTypingEvent,
+} from "./DiscordGateway.js";
 
 export type DiscordInputHandlers = {
   handleMessage(message: HumanMessage, pinged: boolean): void;
   handleTyping(channelId: string, userId: string, username: string): void;
   handleReady?(username: string): void;
-  handleCommand?(
-    name: string,
-    reply: (content: string | { content: string; ephemeral: boolean }) => Promise<void>,
-  ): void;
+  handleCommand?(event: DiscordCommandEvent): void;
 };
 
 /** Owns Discord lifecycle events and translates inputs into application values. */
@@ -39,7 +41,7 @@ export class DiscordAdapter {
       },
       message: (message) => this.handleMessage(message),
       typing: (event) => this.handleTyping(event),
-      command: (event) => handlers.handleCommand?.(event.name, (content) => event.reply(content)),
+      command: (event) => handlers.handleCommand?.(event),
       error: (error) => logger.error("discord.error", { error: String(error) }),
     });
   }

@@ -9,6 +9,12 @@ const quietLogger = {
   warn() {},
 };
 
+const quietReporter = {
+  async started() {},
+  async completed() {},
+  async failed() {},
+};
+
 test("initializes a 24-hour due time without invoking consolidation", async (t) => {
   const scheduled: Date[] = [];
   const scheduler = new MemoryConsolidationScheduler(
@@ -29,6 +35,7 @@ test("initializes a 24-hour due time without invoking consolidation", async (t) 
       },
     },
     { beginDreaming: () => true, finishDreaming() {} },
+    quietReporter,
     quietLogger,
     { now: () => new Date("2026-08-12T12:00:00.000Z"), checkIntervalMs: 10_000 },
   );
@@ -71,6 +78,7 @@ test("skips an empty due buffer and advances the schedule without dreaming", asy
       },
       finishDreaming() {},
     },
+    quietReporter,
     quietLogger,
     { now: () => new Date("2026-08-12T12:00:00.000Z"), checkIntervalMs: 10_000 },
   );
@@ -84,6 +92,53 @@ test("skips an empty due buffer and advances the schedule without dreaming", asy
     scheduled.map((date) => date.toISOString()),
     ["2026-08-13T12:00:00.000Z"],
   );
+});
+
+test("scheduled consolidation reports dream start and completion", async (t) => {
+  const events: string[] = [];
+  const scheduler = new MemoryConsolidationScheduler(
+    {
+      async hasPendingMemory() {
+        return true;
+      },
+      async consolidate() {
+        events.push("consolidate");
+        return "consolidated" as const;
+      },
+    },
+    {
+      async getNextRunAt() {
+        return new Date("2026-08-12T11:00:00.000Z");
+      },
+      async setNextRunAt() {},
+    },
+    {
+      beginDreaming() {
+        return true;
+      },
+      finishDreaming() {
+        events.push("finish");
+      },
+    },
+    {
+      async started() {
+        events.push("started");
+      },
+      async completed() {
+        events.push("completed");
+      },
+      async failed() {
+        events.push("failed");
+      },
+    },
+    quietLogger,
+    { now: () => new Date("2026-08-12T12:00:00.000Z"), checkIntervalMs: 10_000 },
+  );
+  t.after(() => scheduler.stop());
+
+  await scheduler.start();
+
+  assert.deepEqual(events, ["started", "consolidate", "finish", "completed"]);
 });
 
 test("defers while active and completes once dreaming can be acquired", async (t) => {
@@ -117,6 +172,7 @@ test("defers while active and completes once dreaming can be acquired", async (t
         finished += 1;
       },
     },
+    quietReporter,
     quietLogger,
     {
       now: () => new Date("2026-08-12T12:00:00.000Z"),
@@ -133,6 +189,104 @@ test("defers while active and completes once dreaming can be acquired", async (t
 
   assert.equal(finished, 1);
   assert.equal(nextRunAt.toISOString(), "2026-08-12T12:00:00.100Z");
+});
+
+test("manual consolidation reports dreaming and resets the due time", async (t) => {
+  const events: string[] = [];
+  let nextRunAt = new Date("2026-08-20T12:00:00.000Z");
+  const scheduler = new MemoryConsolidationScheduler(
+    {
+      async hasPendingMemory() {
+        return true;
+      },
+      async consolidate() {
+        events.push("consolidate");
+        return "consolidated" as const;
+      },
+    },
+    {
+      async getNextRunAt() {
+        return nextRunAt;
+      },
+      async setNextRunAt(value) {
+        nextRunAt = value;
+      },
+    },
+    {
+      beginDreaming() {
+        events.push("begin");
+        return true;
+      },
+      finishDreaming() {
+        events.push("finish");
+      },
+    },
+    quietReporter,
+    quietLogger,
+    { now: () => new Date("2026-08-12T12:00:00.000Z"), checkIntervalMs: 10_000 },
+  );
+  t.after(() => scheduler.stop());
+
+  await scheduler.start();
+  const outcome = await scheduler.consolidateNow({
+    async started() {
+      events.push("started");
+    },
+    async completed() {
+      events.push("completed");
+    },
+    async failed() {
+      events.push("failed");
+    },
+  });
+
+  assert.equal(outcome, "consolidated");
+  assert.deepEqual(events, ["begin", "started", "consolidate", "finish", "completed"]);
+  assert.equal(nextRunAt.toISOString(), "2026-08-13T12:00:00.000Z");
+});
+
+test("manual consolidation returns empty or active without lifecycle messages", async (t) => {
+  let pending = false;
+  let canDream = false;
+  const events: string[] = [];
+  const scheduler = new MemoryConsolidationScheduler(
+    {
+      async hasPendingMemory() {
+        return pending;
+      },
+      async consolidate() {
+        throw new Error("should not consolidate");
+      },
+    },
+    {
+      async getNextRunAt() {
+        return new Date("2026-08-20T12:00:00.000Z");
+      },
+      async setNextRunAt() {},
+    },
+    { beginDreaming: () => canDream, finishDreaming() {} },
+    quietReporter,
+    quietLogger,
+    { checkIntervalMs: 10_000 },
+  );
+  t.after(() => scheduler.stop());
+  const reporter = {
+    async started() {
+      events.push("started");
+    },
+    async completed() {
+      events.push("completed");
+    },
+    async failed() {
+      events.push("failed");
+    },
+  };
+
+  assert.equal(await scheduler.consolidateNow(reporter), "empty");
+  pending = true;
+  assert.equal(await scheduler.consolidateNow(reporter), "active");
+  canDream = true;
+  assert.deepEqual(events, []);
 });
 
 async function until(predicate: () => boolean, timeoutMs = 500): Promise<void> {

@@ -18,6 +18,7 @@ test("composition performs no Discord login until explicitly started", async () 
       discordToken: "token",
       openaiApiKey: "key",
       discordLogChannelId: undefined,
+      discordAdminUserId: undefined,
       openaiDailyBudgetUsd: 0,
       logLevel: "error",
     },

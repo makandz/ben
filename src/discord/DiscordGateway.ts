@@ -32,7 +32,10 @@ export type DiscordTypingEvent = {
 
 export type DiscordCommandEvent = {
   name: string;
+  userId: string;
+  channelId: string;
   reply(content: string | { content: string; ephemeral: boolean }): Promise<void>;
+  followUp(content: string | { content: string; ephemeral: boolean }): Promise<void>;
 };
 
 export type DiscordCommandDefinition = {

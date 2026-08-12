@@ -8,6 +8,12 @@ import type { DiscordGateway } from "../discord/DiscordGateway.js";
 import { DiscordPresence } from "../discord/DiscordPresence.js";
 import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDelivery.js";
 import { DiscordTransport } from "../discord/DiscordTransport.js";
+import {
+  DREAM_COMPLETE_MESSAGE,
+  DREAM_START_MESSAGE,
+  handleConsolidateCommand,
+  registerConsolidateCommand,
+} from "../discord/consolidateCommand.js";
 import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
 import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
@@ -188,6 +194,16 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     memoryConsolidator,
     consolidationState,
     session,
+    {
+      started: () => sendConsolidationStatus(transport, logger, DREAM_START_MESSAGE),
+      completed: () => sendConsolidationStatus(transport, logger, DREAM_COMPLETE_MESSAGE),
+      failed: () =>
+        sendConsolidationStatus(
+          transport,
+          logger,
+          "Consolidation failed. Short-term memories were preserved.",
+        ),
+    },
     logger,
   );
 
@@ -213,9 +229,21 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
         });
+        void registerConsolidateCommand(gateway, logger).catch((error: unknown) => {
+          logger.warn("discord.command_registration_failed", { error: String(error) });
+        });
       },
-      handleCommand: (name, reply) => {
-        if (name === "usage") void handleUsageCommand({ reply }, dependencies.usageStore, logger);
+      handleCommand: (event) => {
+        if (event.name === "usage") {
+          void handleUsageCommand(event, dependencies.usageStore, logger);
+        } else if (event.name === "consolidate") {
+          void handleConsolidateCommand(
+            event,
+            env.discordAdminUserId,
+            memoryConsolidationScheduler,
+            logger,
+          );
+        }
       },
     },
     users,
@@ -235,4 +263,15 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       await adapter.stop();
     },
   };
+}
+
+/** Contains optional Discord consolidation-status delivery failures. */
+async function sendConsolidationStatus(
+  transport: Pick<DiscordTransport, "logStatus">,
+  logger: Pick<Logger, "warn">,
+  message: string,
+): Promise<void> {
+  await transport.logStatus(message).catch((error: unknown) => {
+    logger.warn("discord.memory_consolidation_status_failed", { error: String(error) });
+  });
 }

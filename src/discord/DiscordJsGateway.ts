@@ -50,8 +50,13 @@ export class DiscordJsGateway implements DiscordGateway {
       if (!interaction.isChatInputCommand()) return;
       this.handlers?.command({
         name: interaction.commandName,
+        userId: interaction.user.id,
+        channelId: interaction.channelId,
         reply: async (content) => {
           await interaction.reply(content);
+        },
+        followUp: async (content) => {
+          await interaction.followUp(content);
         },
       });
     });

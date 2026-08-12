@@ -14,6 +14,14 @@ type DreamingLifecycle = {
   finishDreaming(): void;
 };
 
+export type ConsolidationReporter = {
+  started(): Promise<void>;
+  completed(): Promise<void>;
+  failed(error: unknown): Promise<void>;
+};
+
+export type ManualConsolidationOutcome = "consolidated" | "empty" | "active" | "running";
+
 export type MemoryConsolidationSchedulerOptions = {
   consolidationIntervalMs?: number;
   checkIntervalMs?: number;
@@ -34,6 +42,7 @@ export class MemoryConsolidationScheduler {
    * @param consolidator - Tool-free long-term memory consolidation service.
    * @param state - Persistent next-run state.
    * @param lifecycle - Session boundary used to acquire the dreaming state.
+   * @param scheduledReporter - Discord log-channel notifications for scheduled dreams.
    * @param logger - Structured scheduler diagnostics.
    * @param options - Timing and clock overrides, primarily for tests.
    * @throws When either configured interval is not positive and finite.
@@ -42,6 +51,7 @@ export class MemoryConsolidationScheduler {
     private readonly consolidator: Pick<MemoryConsolidator, "hasPendingMemory" | "consolidate">,
     private readonly state: ConsolidationState,
     private readonly lifecycle: DreamingLifecycle,
+    private readonly scheduledReporter: ConsolidationReporter,
     private readonly logger: Pick<Logger, "debug" | "info" | "warn">,
     options: MemoryConsolidationSchedulerOptions = {},
   ) {
@@ -80,6 +90,26 @@ export class MemoryConsolidationScheduler {
     this.timer = undefined;
   }
 
+  /**
+   * Requests consolidation immediately, independent of the persisted due time.
+   *
+   * @param reporter - Discord-facing lifecycle notifications for this request.
+   * @returns The completed result or the reason consolidation could not begin.
+   * @throws When consolidation or persistence fails after reporting the failure.
+   */
+  async consolidateNow(reporter: ConsolidationReporter): Promise<ManualConsolidationOutcome> {
+    if (this.running) return "running";
+    this.running = true;
+    try {
+      if (!(await this.consolidator.hasPendingMemory())) return "empty";
+      if (!this.lifecycle.beginDreaming()) return "active";
+      await this.performConsolidation(reporter, this.now());
+      return "consolidated";
+    } finally {
+      this.running = false;
+    }
+  }
+
   /** Performs one non-overlapping due check. */
   private async runDue(reason: "startup" | "interval"): Promise<void> {
     if (this.running) {
@@ -105,19 +135,28 @@ export class MemoryConsolidationScheduler {
         this.logger.debug("memory_consolidation.deferred_active", { reason });
         return;
       }
-
-      try {
-        const outcome = await this.consolidator.consolidate();
-        await this.scheduleNext(now);
-        this.logger.info(`memory_consolidation.${outcome}`, { reason });
-      } finally {
-        this.lifecycle.finishDreaming();
-      }
+      await this.performConsolidation(this.scheduledReporter, now);
+      this.logger.info("memory_consolidation.consolidated", { reason });
     } catch (error) {
       this.logger.warn("memory_consolidation.failed", { reason, error: String(error) });
     } finally {
       this.running = false;
     }
+  }
+
+  /** Runs one acquired dreaming phase and reports its Discord-visible lifecycle. */
+  private async performConsolidation(reporter: ConsolidationReporter, now: Date): Promise<void> {
+    try {
+      await reporter.started();
+      await this.consolidator.consolidate();
+      await this.scheduleNext(now);
+    } catch (error) {
+      await reporter.failed(error);
+      throw error;
+    } finally {
+      this.lifecycle.finishDreaming();
+    }
+    await reporter.completed();
   }
 
   /** Records a full interval after a completed or empty due check. */

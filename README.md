@@ -44,6 +44,7 @@ pnpm dev
 | Variable                  | Default | Purpose                                                   |
 | ------------------------- | ------- | --------------------------------------------------------- |
 | `DISCORD_LOG_CHANNEL_ID`  | unset   | Sends lifecycle and scheduling logs to a Discord channel. |
+| `DISCORD_ADMIN_USER_ID`   | unset   | Allows that Discord user to run `/consolidate`.           |
 | `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it. |
 | `LOG_LEVEL`               | `info`  | Sets the console log level.                               |
 
