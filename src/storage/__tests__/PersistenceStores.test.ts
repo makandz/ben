@@ -7,6 +7,7 @@ import test from "node:test";
 import { ConversationSummaryStore } from "../ConversationSummaryStore.js";
 import { CustomStatusStore } from "../CustomStatusStore.js";
 import { KnownPeopleStore } from "../KnownPeopleStore.js";
+import { MemoryStore } from "../MemoryStore.js";
 import { ScheduledMessageStore } from "../ScheduledMessageStore.js";
 
 const warnings: string[] = [];
@@ -153,6 +154,77 @@ test("known-people store ignores malformed entries and rejects malformed contain
   assert.deepEqual(await store.listForPrompt(), { good: { name: "Person" } });
   await writeFile(filePath, JSON.stringify({ people: [] }));
   await assert.rejects(() => store.listForPrompt(), /people must be a JSON object/);
+});
+
+test("memory store adds, updates, and tombstones stable numeric IDs", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "memories.json");
+  await copyFile("src/testing/fixtures/memories.json", filePath);
+  const store = new MemoryStore(filePath, logger);
+
+  assert.deepEqual(await store.list(), [
+    { id: 0, memory: "The group usually plays games on Friday evenings." },
+    { id: 2, memory: "Makan prefers concise technical explanations." },
+  ]);
+  assert.deepEqual(await store.remember({ action: "delete", id: 0 }), {
+    ok: true,
+    action: "deleted",
+    id: 0,
+    memory: "The group usually plays games on Friday evenings.",
+  });
+  assert.deepEqual(
+    await store.remember({ action: "update", id: 2, memory: " Makan likes concise answers. " }),
+    { ok: true, action: "updated", id: 2, memory: "Makan likes concise answers." },
+  );
+  assert.deepEqual(await store.remember({ action: "add", memory: "Ben likes pizza." }), {
+    ok: true,
+    action: "added",
+    id: 3,
+    memory: "Ben likes pizza.",
+  });
+  assert.deepEqual(await store.list(), [
+    { id: 2, memory: "Makan likes concise answers." },
+    { id: 3, memory: "Ben likes pizza." },
+  ]);
+  assert.deepEqual(JSON.parse(await readFile(filePath, "utf8")), {
+    version: 1,
+    memories: [null, null, "Makan likes concise answers.", "Ben likes pizza."],
+  });
+});
+
+test("memory store rejects missing IDs and preserves malformed positions as tombstones", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "memories.json");
+  const store = new MemoryStore(filePath, logger);
+  await writeFile(filePath, JSON.stringify({ memories: [" kept ", 42, " ", null] }));
+
+  assert.deepEqual(await store.list(), [{ id: 0, memory: "kept" }]);
+  assert.deepEqual(await store.remember({ action: "update", id: 1, memory: "no" }), {
+    ok: false,
+    error: "memory 1 does not exist",
+  });
+  assert.deepEqual(await store.remember({ action: "delete", id: 10 }), {
+    ok: false,
+    error: "memory 10 does not exist",
+  });
+});
+
+test("memory store recommends deletion when the active-memory limit is reached", async (t) => {
+  const directory = await tempDirectory(t);
+  const filePath = path.join(directory, "memories.json");
+  const store = new MemoryStore(filePath, logger);
+  await writeFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      memories: Array.from({ length: 100 }, (_, id) => `memory ${String(id)}`),
+    }),
+  );
+
+  assert.deepEqual(await store.remember({ action: "add", memory: "one too many" }), {
+    ok: false,
+    error: "memory limit of 100 reached; delete an existing memory before adding another",
+  });
 });
 
 test("scheduled-message store reads the current shape and preserves lifecycle fields", async (t) => {

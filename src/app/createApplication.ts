@@ -13,6 +13,7 @@ import { createScheduledMessageTool } from "../discord/tools/createScheduledMess
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
 import { createReactToMessageTool } from "../discord/tools/reactToMessage.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
+import { sendToolStatus } from "../discord/tools/toolSupport.js";
 import { createUpdateCustomStatusTool } from "../discord/tools/updateCustomStatus.js";
 import type { Model } from "../model/Model.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
@@ -24,15 +25,18 @@ import {
 import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js";
 import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
+import { MemoryStore } from "../storage/MemoryStore.js";
 import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
+import { createRememberTool } from "../tools/remember.js";
 
 const paths = {
   summaries: "logs/conversation-summaries.json",
   people: "logs/known-people.json",
   schedules: "logs/scheduled-messages.json",
   customStatus: "logs/custom-status.json",
+  memories: "logs/memories.json",
 } as const;
 
 export type Application = {
@@ -83,6 +87,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const people = new KnownPeopleStore(paths.people, logger);
   const schedules = new ScheduledMessageStore(paths.schedules, logger);
   const customStatus = new CustomStatusStore(paths.customStatus, logger);
+  const memories = new MemoryStore(paths.memories, logger);
   const scheduledScheduler = new ScheduledMessageScheduler(
     schedules,
     createScheduledMessageDelivery(gateway),
@@ -91,6 +96,19 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   );
 
   const tools = new ToolRegistry([waitTool, sleepTool]);
+  tools.register(
+    createRememberTool({
+      store: memories,
+      sendStatus: (message) =>
+        sendToolStatus(
+          gateway,
+          logger,
+          "discord.memory_status_failed",
+          session.getActiveChannelId(),
+          message,
+        ),
+    }),
+  );
   tools.register(
     createSendMessageTool({
       transport,
@@ -143,7 +161,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     presence,
     logger,
     {},
-    { summaries, knownPeople: people, customStatus },
+    { summaries, knownPeople: people, customStatus, memories },
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },

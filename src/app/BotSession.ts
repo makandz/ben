@@ -1,6 +1,6 @@
 import type { Logger } from "../logger.js";
 import { ModelBudgetExceededError } from "../model/Model.js";
-import { buildUserPrompt, type KnownPeople } from "../prompts/formatMessages.js";
+import { buildUserPrompt, type KnownPeople, type MemoryItem } from "../prompts/formatMessages.js";
 import { formatUsd } from "../util/formatCurrency.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";
@@ -46,6 +46,9 @@ export type BotSessionPersistence = {
   };
   customStatus?: {
     get(): Promise<string | undefined>;
+  };
+  memories?: {
+    list(): Promise<readonly MemoryItem[]>;
   };
 };
 
@@ -96,7 +99,7 @@ export class BotSession {
    * @param presence - Availability output capability.
    * @param logger - Structured application logger.
    * @param timingOverrides - Narrow timer overrides intended for behavior tests.
-   * @param persistence - Optional summary and known-people persistence capabilities.
+   * @param persistence - Optional durable context and session-state persistence capabilities.
    * @param promptContext - Optional dynamic local-time prompt values.
    * @throws When a timing override is negative or not finite.
    */
@@ -331,6 +334,12 @@ export class BotSession {
           return [];
         })) ?? [])
       : [];
+    const memories = includeFirstPromptContext
+      ? ((await this.persistence.memories?.list().catch((error: unknown) => {
+          this.logger.warn("memories.read_failed", { error: String(error) });
+          return [];
+        })) ?? [])
+      : [];
     const currentBotTime = this.promptContext.getCurrentBotTime?.();
     const currentCustomStatus =
       this.persistence.customStatus === undefined
@@ -345,6 +354,7 @@ export class BotSession {
       knownPeople,
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
+      memories,
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
       ...(currentCustomStatus === undefined ? {} : { currentCustomStatus }),
       ...(includeFirstPromptContext && messages[0] !== undefined

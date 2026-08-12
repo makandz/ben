@@ -6,6 +6,11 @@ export type ConversationSummary = {
   summary: string;
 };
 
+export type MemoryItem = {
+  id: number;
+  memory: string;
+};
+
 export type UserPromptOptions = {
   recentContext: readonly HumanMessage[];
   messages: readonly HumanMessage[];
@@ -15,6 +20,7 @@ export type UserPromptOptions = {
   currentCustomStatus?: string | null;
   pingedByUsername?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
+  memories?: readonly MemoryItem[];
 };
 
 /**
@@ -70,6 +76,10 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     }
   }
 
+  if (options.memories !== undefined && options.memories.length > 0) {
+    sections.push(`Memories:\n${formatMemories(options.memories)}`);
+  }
+
   if (
     options.recentConversationSummaries !== undefined &&
     options.recentConversationSummaries.length > 0
@@ -110,4 +120,9 @@ function formatKnownPeople(knownPeople: KnownPeople): string {
 /** Formats saved conversation summaries as a list. */
 function formatConversationSummaries(conversations: readonly ConversationSummary[]): string {
   return conversations.map((conversation) => `- ${conversation.summary}`).join("\n");
+}
+
+/** Formats durable memories with stable IDs used only for later mutations. */
+function formatMemories(memories: readonly MemoryItem[]): string {
+  return memories.map(({ id, memory }) => `- [${String(id)}] ${memory}`).join("\n");
 }
