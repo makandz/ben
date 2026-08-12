@@ -1,75 +1,61 @@
-# Discord OpenAI Bot
+# Ben
 
-TypeScript Discord bot that wakes on a ping, batches recent human messages, and responds through the OpenAI Responses API.
+Ben is an AI member of a private Discord server.
+
+Ping him and he joins the conversation, catches up on what people were saying, waits for everyone to finish typing, and responds in the same casual rhythm as the rest of the server. He is designed to feel present without needing to be the center of attention.
+
+## What Ben does
+
+- holds multi-person conversations with recent channel context;
+- waits for a natural pause before responding;
+- replies to and reacts to Discord messages;
+- remembers people's preferred names;
+- sets his own custom status;
+- schedules one-time, daily, or weekly messages; and
+- reports OpenAI usage through `/usage`.
+
+Ben stays active in one channel at a time. Other pings are queued until he is free, and a small amount of conversation context is saved when he goes back to sleep.
 
 ## Setup
 
-1. Install dependencies:
+Requires Node.js 20+, pnpm, a Discord bot token, and an OpenAI API key.
 
-   ```sh
-   pnpm install
-   ```
-
-2. Create a local environment file:
-
-   ```sh
-   cp .env.example .env
-   ```
-
-3. Add your bot token and OpenAI API key to `.env`:
-
-   ```sh
-   DISCORD_TOKEN=your_discord_bot_token
-   OPENAI_API_KEY=your_openai_api_key
-   ```
-
-4. Enable these Discord gateway intents for the bot in the Discord developer portal:
-
-   - Message Content Intent
-   - Server Members Intent
-
-5. Start the bot:
-
-   ```sh
-   pnpm dev
-   ```
-
-The bot logs when it connects. It replies in the channel where the triggering message batch was received, and can route requested messages to another server channel by name. Ben stays active in one channel at a time; pings from other channels are queued until the current channel sleeps. Status messages such as wake, wait, sleep, and reasoning summaries are sent to `DISCORD_LOG_CHANNEL_ID` when configured.
-
-## Scheduled Messages
-
-Ben can schedule future messages from natural Discord requests, such as:
-
-```text
-ben remind me tomorrow at 9 to check the deploy
-ben every day at 6pm ask alex and priya if they're joining the call tonight
+```sh
+pnpm install
+cp .env.example .env
 ```
 
-Scheduled messages require real target users. Ben validates usernames and channels before saving, stores resolved Discord user IDs and channel IDs, and persists schedules to JSON so they survive restarts. At send time, Ben posts the target user pings followed by the scheduled text.
+Add your credentials to `.env`:
 
-Supported repeats are one-time, daily, and weekly. Monthly schedules are intentionally not supported yet. Dates and times are interpreted in Ben's `America/Toronto` timezone.
+```dotenv
+DISCORD_TOKEN=your_discord_bot_token
+OPENAI_API_KEY=your_openai_api_key
+```
 
-## Discord Commands
+Enable **Message Content Intent** and **Server Members Intent** for the bot in the Discord developer portal, then run:
 
-- `/usage` shows today's persisted OpenAI request count, input tokens, cached input tokens, output tokens, total tokens, estimated cost, and configured model.
+```sh
+pnpm dev
+```
 
 ## Configuration
 
-- `DISCORD_TOKEN` is required.
-- `OPENAI_API_KEY` is required.
-- `DISCORD_LOG_CHANNEL_ID` optionally enables wake/wait/sleep status messages in a dedicated Discord channel.
-- `OPENAI_DAILY_BUDGET_USD` defaults to `0`, which disables the daily cost stop. Set it to a positive dollar amount to stop OpenAI calls after that day's stored usage reaches the limit.
-- `LOG_LEVEL` defaults to `info`; use `debug` for queue and debounce details.
+| Variable                  | Default | Purpose                                                   |
+| ------------------------- | ------- | --------------------------------------------------------- |
+| `DISCORD_LOG_CHANNEL_ID`  | unset   | Sends lifecycle and scheduling logs to a Discord channel. |
+| `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it. |
+| `LOG_LEVEL`               | `info`  | Sets the console log level.                               |
 
-Model names, storage paths, session timings, scheduler intervals, and the scheduling timezone are local constants beside the code that owns them.
+Scheduled messages use the `America/Toronto` timezone. Runtime state is stored as gitignored JSON under `logs/`.
 
-The system prompt is loaded from the local `prompts/system.txt` asset on each OpenAI request. In development, edits are picked up without restarting the bot; `pnpm build` copies it into `dist` for production.
+## Development
 
-## Scripts
+```sh
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm format:check
+pnpm build
+```
 
-- `pnpm dev` starts the bot with `tsx` in watch mode.
-- `pnpm build` compiles TypeScript into `dist/`.
-- `pnpm start` runs the compiled bot.
-- `pnpm typecheck` checks TypeScript without emitting files.
-- `pnpm test` runs the test suite without connecting to Discord or OpenAI.
-- `pnpm lint` runs ESLint.
+Ben's personality and behavior are defined in [`src/prompts/system.txt`](src/prompts/system.txt). In development, prompt edits take effect on the next model request without a restart.
