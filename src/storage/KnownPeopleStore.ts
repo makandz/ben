@@ -38,7 +38,7 @@ export class KnownPeopleStore {
   }
 
   /**
-   * Stores one verified person unless their ID or username already exists.
+   * Stores or updates one verified person unless their username belongs to another ID.
    *
    * @param input - Verified Discord identity and supplied real or preferred name.
    * @returns A model-readable success or validation result.
@@ -55,13 +55,6 @@ export class KnownPeopleStore {
 
     return this.updates.run<RememberKnownPersonResult>(async () => {
       const data = await this.read();
-      const existing = data.people[userId];
-      if (existing !== undefined) {
-        return {
-          ok: false,
-          error: `${existing.username} is already remembered as "${existing.name}"`,
-        };
-      }
       for (const [existingUserId, person] of Object.entries(data.people)) {
         if (
           existingUserId !== userId &&
