@@ -9,6 +9,7 @@ Ping him and he joins the conversation, catches up on what people were saying, w
 - holds multi-person conversations with recent channel context;
 - waits for a natural pause before responding;
 - replies to and reacts to Discord messages;
+- consolidates recent conversations and short-term memories into long-term memory;
 - remembers people's preferred names;
 - sets his own custom status;
 - schedules one-time, daily, or weekly messages; and
@@ -46,7 +47,7 @@ pnpm dev
 | `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it. |
 | `LOG_LEVEL`               | `info`  | Sets the console log level.                               |
 
-Scheduled messages use the `America/Toronto` timezone. Runtime state is stored as gitignored JSON under `logs/`.
+Scheduled messages use the `America/Toronto` timezone. Runtime state is stored under the gitignored `logs/` directory. Ben checks for memory consolidation every 24 hours, skips the model call when there is no short-term context, and stores the resulting long-term memory as plain text.
 
 ## Development
 

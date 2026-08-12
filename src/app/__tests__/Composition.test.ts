@@ -24,7 +24,9 @@ test("composition performs no Discord login until explicitly started", async () 
     logger: new Logger("error"),
     gateway,
     conversationModel: new ScriptedModel([]),
+    consolidationModel: new ScriptedModel([]),
     instructions: "Be Ben.",
+    consolidationInstructions: "Consolidate memory.",
     usageStore: new OpenAIUsageStore("logs/openai-usage", "gpt-5.4-mini", 0),
   });
   assert.equal(gateway.loginToken, undefined);

@@ -12,7 +12,7 @@ const IDLE_SLEEP_MS = 5 * 60 * 1_000;
 const TYPING_REFRESH_MS = 8_000;
 const SLEEPING_CONTEXT_LIMIT = 5;
 
-type SessionMode = "sleeping" | "awake" | "processing";
+type SessionMode = "sleeping" | "dreaming" | "awake" | "processing";
 
 export type BotSessionTimingOverrides = {
   messageDebounceMs?: number;
@@ -49,6 +49,9 @@ export type BotSessionPersistence = {
   };
   memories?: {
     list(): Promise<readonly MemoryItem[]>;
+  };
+  longTermMemory?: {
+    get(): Promise<string | undefined>;
   };
 };
 
@@ -171,7 +174,7 @@ export class BotSession {
    * @param username - Typing user's display name for diagnostics.
    */
   handleTyping(channelId: string, userId: string, username: string): void {
-    if (this.mode === "sleeping") return;
+    if (this.mode === "sleeping" || this.mode === "dreaming") return;
 
     const users = this.typingByChannel.get(channelId) ?? new Map<string, TypingActivity>();
     users.set(userId, { expiresAt: Date.now() + this.timings.typingDebounceMs });
@@ -227,6 +230,26 @@ export class BotSession {
    */
   isMessageInActiveConversation(messageId: string): boolean {
     return this.activeMessageIds.has(messageId);
+  }
+
+  /**
+   * Acquires the dreaming state when no conversation is active.
+   *
+   * @returns Whether the session transitioned from sleeping to dreaming.
+   */
+  beginDreaming(): boolean {
+    if (this.mode !== "sleeping") return false;
+    this.mode = "dreaming";
+    this.logger.info("session.dreaming_started");
+    return true;
+  }
+
+  /** Ends dreaming and promotes the oldest ping queued while consolidation ran. */
+  finishDreaming(): void {
+    if (this.mode !== "dreaming") return;
+    this.mode = "sleeping";
+    this.logger.info("session.dreaming_finished", { queuedChannels: this.queuedWakes.length });
+    this.promoteQueuedWake();
   }
 
   /** Starts a conversation from a ping or promoted queued wake. */
@@ -340,6 +363,12 @@ export class BotSession {
           return [];
         })) ?? [])
       : [];
+    const longTermMemory = includeFirstPromptContext
+      ? await this.persistence.longTermMemory?.get().catch((error: unknown) => {
+          this.logger.warn("long_term_memory.read_failed", { error: String(error) });
+          return undefined;
+        })
+      : undefined;
     const currentBotTime = this.promptContext.getCurrentBotTime?.();
     const currentCustomStatus =
       this.persistence.customStatus === undefined
@@ -357,6 +386,7 @@ export class BotSession {
       memories,
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
       ...(currentCustomStatus === undefined ? {} : { currentCustomStatus }),
+      ...(longTermMemory === undefined ? {} : { longTermMemory }),
       ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
         : {}),
@@ -452,7 +482,7 @@ export class BotSession {
 
   /** Resets the automatic sleep timer while the session is awake. */
   private resetIdleTimer(): void {
-    if (this.mode === "sleeping" || this.mode === "processing") return;
+    if (this.mode === "sleeping" || this.mode === "dreaming" || this.mode === "processing") return;
     if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.goToSleep("idle"), this.timings.idleSleepMs);
   }
@@ -472,6 +502,11 @@ export class BotSession {
     this.presence.setPresence({ status: "idle" });
     this.logger.info("session.sleep", { reason, queuedChannels: this.queuedWakes.length });
 
+    this.promoteQueuedWake();
+  }
+
+  /** Promotes the oldest queued ping into a fresh conversation. */
+  private promoteQueuedWake(): void {
     const next = this.queuedWakes.shift();
     if (next !== undefined) this.wake(next.messages, next.recentContext);
   }

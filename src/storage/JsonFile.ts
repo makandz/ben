@@ -27,11 +27,23 @@ export async function readJsonFile(filePath: string): Promise<unknown> {
  * @throws When the directory or file cannot be written.
  */
 export async function writeJsonFileAtomic(filePath: string, data: object): Promise<void> {
+  await writeFileAtomic(filePath, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+/**
+ * Atomically replaces a UTF-8 text file through a unique sibling temporary file.
+ *
+ * @param filePath - Destination text file.
+ * @param contents - Complete replacement contents.
+ * @returns A promise that resolves after the replacement is committed.
+ * @throws When the directory or file cannot be written.
+ */
+export async function writeFileAtomic(filePath: string, contents: string): Promise<void> {
   const directory = path.dirname(filePath);
   const temporary = path.join(directory, `.${path.basename(filePath)}.${randomUUID()}.tmp`);
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await writeFile(temporary, contents, "utf8");
     await rename(temporary, filePath);
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined);

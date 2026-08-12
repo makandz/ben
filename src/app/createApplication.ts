@@ -16,6 +16,8 @@ import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
 import { sendToolStatus } from "../discord/tools/toolSupport.js";
 import { createUpdateCustomStatusTool } from "../discord/tools/updateCustomStatus.js";
 import type { Model } from "../model/Model.js";
+import { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
+import { MemoryConsolidator } from "../memory/MemoryConsolidator.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
 import { formatBotTime } from "../scheduling/scheduleTime.js";
 import {
@@ -26,6 +28,8 @@ import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js
 import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { MemoryStore } from "../storage/MemoryStore.js";
+import { LongTermMemoryStore } from "../storage/LongTermMemoryStore.js";
+import { MemoryConsolidationStateStore } from "../storage/MemoryConsolidationStateStore.js";
 import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
@@ -37,6 +41,8 @@ const paths = {
   schedules: "logs/scheduled-messages.json",
   customStatus: "logs/custom-status.json",
   memories: "logs/memories.json",
+  longTermMemory: "logs/long-term-memory.txt",
+  memoryConsolidationState: "logs/memory-consolidation.json",
 } as const;
 
 export type Application = {
@@ -49,7 +55,9 @@ export type ApplicationDependencies = {
   logger: Logger;
   gateway: DiscordGateway;
   conversationModel: Model;
+  consolidationModel: Model;
   instructions: string;
+  consolidationInstructions: string;
   usageStore: OpenAIUsageStore;
 };
 
@@ -88,6 +96,11 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const schedules = new ScheduledMessageStore(paths.schedules, logger);
   const customStatus = new CustomStatusStore(paths.customStatus, logger);
   const memories = new MemoryStore(paths.memories, logger);
+  const longTermMemory = new LongTermMemoryStore(paths.longTermMemory);
+  const consolidationState = new MemoryConsolidationStateStore(
+    paths.memoryConsolidationState,
+    logger,
+  );
   const scheduledScheduler = new ScheduledMessageScheduler(
     schedules,
     createScheduledMessageDelivery(gateway),
@@ -161,10 +174,21 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     presence,
     logger,
     {},
-    { summaries, knownPeople: people, customStatus, memories },
+    { summaries, knownPeople: people, customStatus, memories, longTermMemory },
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
+  );
+  const memoryConsolidator = new MemoryConsolidator(
+    dependencies.consolidationModel,
+    dependencies.consolidationInstructions,
+    { summaries, shortTermMemories: memories, longTermMemory },
+  );
+  const memoryConsolidationScheduler = new MemoryConsolidationScheduler(
+    memoryConsolidator,
+    consolidationState,
+    session,
+    logger,
   );
 
   let ready = false;
@@ -185,6 +209,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
         void scheduledScheduler.start();
+        void memoryConsolidationScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
         });
@@ -206,6 +231,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     async stop() {
       session.stop();
       scheduledScheduler.stop();
+      memoryConsolidationScheduler.stop();
       await adapter.stop();
     },
   };

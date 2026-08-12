@@ -1,7 +1,7 @@
 import type { Logger } from "../logger.js";
 import { isRecord, readJsonFile, UpdateQueue, writeJsonFileAtomic } from "./JsonFile.js";
 
-const MAX_CONVERSATION_SUMMARIES = 5;
+const MAX_CONVERSATION_SUMMARIES = 25;
 
 export type ConversationSummary = {
   sleptAt: string;
@@ -26,7 +26,7 @@ export class ConversationSummaryStore {
   /**
    * Lists the valid summaries retained for future prompt context.
    *
-   * @returns Up to five valid summaries in stored order.
+   * @returns Up to 25 valid summaries in stored order.
    */
   async list(): Promise<ConversationSummary[]> {
     return this.readSummaries();
@@ -52,6 +52,13 @@ export class ConversationSummaryStore {
       await writeJsonFileAtomic(this.filePath, { version: 1, conversations });
       return conversations;
     });
+  }
+
+  /** Clears all summaries after successful long-term consolidation. */
+  async clear(): Promise<void> {
+    await this.updates.run(() =>
+      writeJsonFileAtomic(this.filePath, { version: 1, conversations: [] }),
+    );
   }
 
   /** Reads valid entries while containing missing, malformed, or unreadable files. */

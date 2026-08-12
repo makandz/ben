@@ -1,7 +1,7 @@
 import type { Logger } from "../logger.js";
 import { isRecord, readJsonFile, UpdateQueue, writeJsonFileAtomic } from "./JsonFile.js";
 
-const MAX_ACTIVE_MEMORIES = 100;
+const MAX_ACTIVE_MEMORIES = 25;
 const MAX_MEMORY_LENGTH = 500;
 
 type MemoryData = { version: 1; memories: (string | null)[] };
@@ -87,6 +87,11 @@ export class MemoryStore {
       await writeJsonFileAtomic(this.filePath, data);
       return { ok: true, action: "updated", id: input.id, memory: memory.value };
     });
+  }
+
+  /** Clears all short-term memories after successful long-term consolidation. */
+  async clear(): Promise<void> {
+    await this.updates.run(() => writeJsonFileAtomic(this.filePath, { version: 1, memories: [] }));
   }
 
   /** Reads and validates the storage shape without collapsing stable positions. */
