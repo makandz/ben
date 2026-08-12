@@ -287,6 +287,11 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
         return { makan: { name: "Makan A." } };
       },
     },
+    customStatus: {
+      async get() {
+        return "🍕 making pizza";
+      },
+    },
   };
   const { session } = createSession(orchestrator, undefined, undefined, fastTimings, persistence);
   t.after(() => session.stop());
@@ -301,8 +306,10 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
   assert.match(firstPrompt, /Known people:\n- makan is Makan A\./);
   assert.match(firstPrompt, /Ben was pinged by Makan \(Makan A\.\)/);
   assert.match(firstPrompt, /Recent conversations:\n- The group planned dinner\./);
+  assert.match(firstPrompt, /Current Discord custom status: "🍕 making pizza"\./);
   assert.doesNotMatch(secondPrompt, /Known people:/);
   assert.doesNotMatch(secondPrompt, /Recent conversations:/);
+  assert.match(secondPrompt, /Current Discord custom status: "🍕 making pizza"\./);
   assert.match(secondPrompt, /Makan \(Makan A\.\): done/);
   assert.deepEqual(saved, [" Makan and Ben finished catching up. "]);
 });

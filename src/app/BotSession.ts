@@ -44,6 +44,9 @@ export type BotSessionPersistence = {
   knownPeople?: {
     listForPrompt(): Promise<KnownPeople>;
   };
+  customStatus?: {
+    get(): Promise<string | undefined>;
+  };
 };
 
 export type BotSessionPromptContext = {
@@ -329,6 +332,13 @@ export class BotSession {
         })) ?? [])
       : [];
     const currentBotTime = this.promptContext.getCurrentBotTime?.();
+    const currentCustomStatus =
+      this.persistence.customStatus === undefined
+        ? undefined
+        : ((await this.persistence.customStatus.get().catch((error: unknown) => {
+            this.logger.warn("custom_status.read_failed", { error: String(error) });
+            return undefined;
+          })) ?? null);
     const prompt = buildUserPrompt({
       recentContext,
       messages,
@@ -336,6 +346,7 @@ export class BotSession {
       includeKnownPeople: includeFirstPromptContext,
       recentConversationSummaries,
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
+      ...(currentCustomStatus === undefined ? {} : { currentCustomStatus }),
       ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
         : {}),

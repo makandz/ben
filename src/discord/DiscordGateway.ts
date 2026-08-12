@@ -74,5 +74,6 @@ export type DiscordGateway = {
   addReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
   sendTyping(channelId: string): Promise<void>;
   setPresence(status: "idle" | "online"): void;
+  setCustomStatus(content: string | undefined): void;
   registerCommand(command: DiscordCommandDefinition): Promise<"registered" | "updated">;
 };
