@@ -61,8 +61,10 @@ test("shows the chosen dream start and completion messages", async () => {
 
   await handleConsolidateCommand(interaction.event, "admin", scheduler, quietLogger);
 
-  assert.deepEqual(interaction.replies, [DREAM_START_MESSAGE]);
-  assert.deepEqual(interaction.followUps, [DREAM_COMPLETE_MESSAGE]);
+  assert.deepEqual(interaction.replies, []);
+  assert.deepEqual(interaction.deferred, [true]);
+  assert.equal(interaction.deletedReplies, 1);
+  assert.deepEqual(interaction.followUps, [DREAM_START_MESSAGE, DREAM_COMPLETE_MESSAGE]);
 });
 
 test("reports empty, active, and already-running manual requests", async () => {
@@ -88,9 +90,13 @@ function recordingInteraction(userId: string): {
   event: DiscordCommandEvent;
   replies: Array<string | { content: string; ephemeral: boolean }>;
   followUps: Array<string | { content: string; ephemeral: boolean }>;
+  deferred: boolean[];
+  deletedReplies: number;
 } {
   const replies: Array<string | { content: string; ephemeral: boolean }> = [];
   const followUps: Array<string | { content: string; ephemeral: boolean }> = [];
+  const deferred: boolean[] = [];
+  let deletedReplies = 0;
   return {
     event: {
       name: "consolidate",
@@ -102,9 +108,19 @@ function recordingInteraction(userId: string): {
       async followUp(content) {
         followUps.push(content);
       },
+      async defer(ephemeral) {
+        deferred.push(ephemeral);
+      },
+      async deleteReply() {
+        deletedReplies += 1;
+      },
     },
     replies,
     followUps,
+    deferred,
+    get deletedReplies() {
+      return deletedReplies;
+    },
   };
 }
 

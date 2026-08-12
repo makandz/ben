@@ -1,9 +1,10 @@
-import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 
 import type {
   DiscordChannel,
   DiscordGateway,
   DiscordGatewayHandlers,
+  DiscordInteractionResponse,
   DiscordMember,
   DiscordSendOptions,
   DiscordSentMessage,
@@ -53,10 +54,18 @@ export class DiscordJsGateway implements DiscordGateway {
         userId: interaction.user.id,
         channelId: interaction.channelId,
         reply: async (content) => {
-          await interaction.reply(content);
+          await interaction.reply(toInteractionResponse(content));
         },
         followUp: async (content) => {
-          await interaction.followUp(content);
+          await interaction.followUp(toInteractionResponse(content));
+        },
+        defer: async (ephemeral) => {
+          await interaction.deferReply({
+            ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+          });
+        },
+        deleteReply: async () => {
+          await interaction.deleteReply();
         },
       });
     });
@@ -251,6 +260,17 @@ export class DiscordJsGateway implements DiscordGateway {
     await existing.edit(command);
     return "updated";
   }
+}
+
+/** Translates provider-neutral visibility into current discord.js response flags. */
+function toInteractionResponse(
+  response: DiscordInteractionResponse,
+): string | { content: string; flags?: MessageFlags.Ephemeral } {
+  if (typeof response === "string") return response;
+  return {
+    content: response.content,
+    ...(response.ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+  };
 }
 
 /** Converts the subset of a discord.js user needed by the application. */

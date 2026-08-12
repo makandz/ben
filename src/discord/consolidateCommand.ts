@@ -55,19 +55,21 @@ export async function handleConsolidateCommand(
     return;
   }
 
-  let started = false;
+  let acknowledged = false;
   try {
     const outcome = await scheduler.consolidateNow({
       async started() {
-        started = true;
-        await interaction.reply(DREAM_START_MESSAGE);
+        await interaction.defer(true);
+        acknowledged = true;
+        await interaction.deleteReply();
+        await interaction.followUp(DREAM_START_MESSAGE);
       },
       async completed() {
         await interaction.followUp(DREAM_COMPLETE_MESSAGE);
       },
       async failed() {
         const content = "Consolidation failed. Short-term memories were preserved.";
-        if (started) await interaction.followUp(content);
+        if (acknowledged) await interaction.followUp(content);
         else await interaction.reply(content);
       },
     });

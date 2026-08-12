@@ -30,12 +30,16 @@ export type DiscordTypingEvent = {
   user: DiscordUser;
 };
 
+export type DiscordInteractionResponse = string | { content: string; ephemeral: boolean };
+
 export type DiscordCommandEvent = {
   name: string;
   userId: string;
   channelId: string;
-  reply(content: string | { content: string; ephemeral: boolean }): Promise<void>;
-  followUp(content: string | { content: string; ephemeral: boolean }): Promise<void>;
+  reply(content: DiscordInteractionResponse): Promise<void>;
+  followUp(content: DiscordInteractionResponse): Promise<void>;
+  defer(ephemeral: boolean): Promise<void>;
+  deleteReply(): Promise<void>;
 };
 
 export type DiscordCommandDefinition = {
