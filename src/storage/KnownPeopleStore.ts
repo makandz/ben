@@ -1,5 +1,5 @@
 import type { Logger } from "../logger.js";
-import type { KnownPeople } from "../prompts/formatMessages.js";
+import type { KnownPeople } from "../prompting/formatMessages.js";
 import { isRecord, readJsonFile, UpdateQueue, writeJsonFileAtomic } from "./JsonFile.js";
 
 type StoredKnownPerson = { username: string; name: string };

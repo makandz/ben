@@ -3,8 +3,9 @@ import test from "node:test";
 
 import { escapeBroadcastMentions } from "../discord/mentions.js";
 import { calculateCostUsd, getModelPricing } from "../model/pricing.js";
-import { buildUserPrompt, formatMessages } from "../prompts/formatMessages.js";
-import { loadSystemPrompt } from "../prompts/systemPrompt.js";
+import { buildUserPrompt, formatMessages } from "../prompting/formatMessages.js";
+import { composeInstructions, loadBasePrompt } from "../prompting/promptLayers.js";
+import { loadSystemPrompt } from "../prompting/systemPrompt.js";
 
 const messageBase = {
   channelId: "channel",
@@ -119,4 +120,17 @@ test("loads the copied system prompt and falls back for a missing file", async (
 
   assert.match(loaded, /Ben/);
   assert.match(fallback, /Discord bot participating in a group chat/);
+});
+
+test("loads and composes the shared base prompt before task instructions", async () => {
+  const missingBase = await loadBasePrompt(
+    new URL("file:///definitely-missing-ben-base-prompt.md"),
+  );
+
+  assert.equal(missingBase, "");
+  assert.equal(composeInstructions(missingBase, "task instructions\n"), "task instructions");
+  assert.equal(
+    composeInstructions("general instructions\n", "task instructions\n"),
+    "general instructions\n\ntask instructions",
+  );
 });

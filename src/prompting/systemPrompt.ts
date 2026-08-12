@@ -13,7 +13,7 @@ const fallbackPrompt = [
  * @returns File content or the fallback prompt when the file cannot be read.
  */
 export async function loadSystemPrompt(
-  path = new URL("./system.txt", import.meta.url),
+  path = new URL("../prompts/system.md", import.meta.url),
 ): Promise<string> {
   try {
     return await readFile(path, "utf8");

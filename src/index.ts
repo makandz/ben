@@ -8,8 +8,9 @@ import { loadEnv, type AppEnv, type LogLevel } from "./env.js";
 import { Logger } from "./logger.js";
 import { OpenAIModel, OPENAI_CONVERSATION_MODEL } from "./model/openai/OpenAIModel.js";
 import { OpenAIUsageStore } from "./model/openai/OpenAIUsageStore.js";
-import { loadSystemPrompt } from "./prompts/systemPrompt.js";
-import { loadMemoryConsolidationPrompt } from "./prompts/memoryConsolidationPrompt.js";
+import { loadMemoryConsolidationPrompt } from "./prompting/memoryConsolidationPrompt.js";
+import { composeInstructions, loadBasePrompt } from "./prompting/promptLayers.js";
+import { loadSystemPrompt } from "./prompting/systemPrompt.js";
 
 export { loadEnv, type AppEnv, type LogLevel };
 export { Logger, type LogData } from "./logger.js";
@@ -42,10 +43,13 @@ export async function createDefaultApplication(): Promise<Application> {
     env.openaiDailyBudgetUsd,
     logger,
   );
-  const [instructions, consolidationInstructions] = await Promise.all([
-    loadSystemPrompt(),
-    loadMemoryConsolidationPrompt(),
-  ]);
+  const [baseInstructions, conversationInstructions, consolidationTaskInstructions] =
+    await Promise.all([loadBasePrompt(), loadSystemPrompt(), loadMemoryConsolidationPrompt()]);
+  const instructions = composeInstructions(baseInstructions, conversationInstructions);
+  const consolidationInstructions = composeInstructions(
+    baseInstructions,
+    consolidationTaskInstructions,
+  );
   return createApplication({
     env,
     logger,

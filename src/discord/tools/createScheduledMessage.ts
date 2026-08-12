@@ -54,17 +54,46 @@ export function createScheduledMessageTool(
     definition: {
       name: "create_scheduled_message",
       description:
-        "Schedule Ben to ping verified users with a message at a future bot-local time, then continue.",
+        "Use when someone asks you to send, remind, ask, or ping one or more real Discord users at a specific future time, including daily or weekly recurring messages. Only schedule it once the required recipient and timing information can be determined.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          message: { type: "string", minLength: 1, maxLength: 1_000 },
-          target_usernames: { type: "array", items: { type: "string" }, minItems: 1 },
-          channel: { type: ["string", "null"] },
-          run_date: { type: "string" },
-          run_time: { type: "string" },
-          repeat: { type: "string", enum: ["none", "daily", "weekly"] },
+          message: {
+            type: "string",
+            minLength: 1,
+            maxLength: 1_000,
+            description:
+              "The text Ben should send at the scheduled time. Do not include leading @username mentions for targeted users because recipients are specified separately.",
+          },
+          target_usernames: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            description:
+              'The verified Discord usernames to ping when the scheduled message is sent. For requests such as "remind me," target the username of the person making the request. Do not use @everyone, @here, roles, or other broad groups.',
+          },
+          channel: {
+            type: ["string", "null"],
+            description:
+              "The Discord channel where the scheduled message should be sent. Use null for the current channel. Specify another channel only when the requester explicitly asks for one.",
+          },
+          run_date: {
+            type: "string",
+            description:
+              "The date of the next scheduled occurrence in the bot's local time, formatted as YYYY-MM-DD. Resolve relative dates such as tomorrow using the current bot time.",
+          },
+          run_time: {
+            type: "string",
+            description:
+              "The time of the scheduled occurrence in the bot's local time, formatted as 24-hour HH:mm. Resolve relative times such as in 2 hours into an exact time before scheduling.",
+          },
+          repeat: {
+            type: "string",
+            enum: ["none", "daily", "weekly"],
+            description:
+              "How the scheduled message repeats. Use none to send once at the specified date and time, daily to send every day at that time, or weekly to send every week on the weekday represented by the supplied date at that time.",
+          },
         },
         required: ["message", "target_usernames", "channel", "run_date", "run_time", "repeat"],
       },

@@ -22,7 +22,7 @@ export function createReactToMessageTool(dependencies: ReactToMessageToolDepende
     definition: {
       name: "react",
       description:
-        "Add one emoji reaction to a message from the active conversation using its exact message_id.",
+        "Use when an emoji reaction adds natural tone to a specific Discord message. During an active exchange, use reactions to complement a conversational response rather than replace it. Use a reaction without a message only when no text response is needed and the interaction is naturally ending, such as acknowledging a farewell. Do not use a reaction alone for a greeting, question, or other conversation opener. A reaction may accompany a message when it adds tone without merely duplicating the text.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -30,13 +30,14 @@ export function createReactToMessageTool(dependencies: ReactToMessageToolDepende
           message_id: {
             type: "string",
             minLength: 1,
-            description: "Exact message_id shown in the transcript or returned after sending.",
+            description: "The exact internal message_id of the Discord message to react to.",
           },
           emoji: {
             type: "string",
             minLength: 1,
             maxLength: MAX_EMOJI_LENGTH,
-            description: "One Unicode emoji or Discord custom emoji identifier.",
+            description:
+              "The Unicode emoji to add as the reaction. Choose one that naturally matches the message and context.",
           },
         },
         required: ["message_id", "emoji"],

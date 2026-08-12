@@ -1,6 +1,6 @@
 import type { Logger } from "../logger.js";
 import { ModelBudgetExceededError } from "../model/Model.js";
-import { buildUserPrompt, type KnownPeople, type MemoryItem } from "../prompts/formatMessages.js";
+import { buildUserPrompt, type KnownPeople, type MemoryItem } from "../prompting/formatMessages.js";
 import { formatUsd } from "../util/formatCurrency.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";

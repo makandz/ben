@@ -16,19 +16,27 @@ export function createRememberTool(dependencies: RememberToolDependencies): Tool
   return {
     definition: {
       name: "remember",
-      description: "Add, update, or delete one durable memory, then continue the turn.",
+      description:
+        "Use when information learned during the current conversation could reasonably be useful after the conversation ends. The active conversation will be forgotten, so favor preserving potentially useful information rather than waiting until you are certain it belongs in permanent memory. Do not add clearly trivial, temporary, or redundant information. Also use this capability to correct or remove a displayed memory that is outdated, incorrect, or no longer useful.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          action: { type: "string", enum: ["add", "update", "delete"] },
+          action: {
+            type: "string",
+            enum: ["add", "update", "delete"],
+            description:
+              "The memory operation to perform. Use add for a new memory, update to completely replace an existing displayed memory with corrected or updated information, or delete to remove an existing displayed memory that should no longer be retained.",
+          },
           id: {
             anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }],
-            description: "The displayed memory ID for update or delete; null when adding.",
+            description:
+              "The ID of the existing displayed memory to update or delete. Use null when adding a new memory.",
           },
           memory: {
             anyOf: [{ type: "string" }, { type: "null" }],
-            description: "The complete memory text for add or update; null when deleting.",
+            description:
+              "The complete memory to store. Write it as a concise, self-contained statement that will still make sense outside the current conversation. Use null when deleting a memory.",
           },
         },
         required: ["action", "id", "memory"],
