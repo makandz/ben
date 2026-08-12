@@ -15,6 +15,8 @@ const quietLogger = {
   warn() {},
 };
 
+const quietSender = async (): Promise<void> => {};
+
 test("registers the global consolidate command", async () => {
   const commands: unknown[] = [];
   await registerConsolidateCommand(
@@ -37,8 +39,8 @@ test("rejects missing configuration and unauthorized users ephemerally", async (
   const unauthorized = recordingInteraction("someone-else");
   const scheduler = scriptedScheduler("consolidated");
 
-  await handleConsolidateCommand(disabled.event, undefined, scheduler, quietLogger);
-  await handleConsolidateCommand(unauthorized.event, "admin", scheduler, quietLogger);
+  await handleConsolidateCommand(disabled.event, undefined, scheduler, quietSender, quietLogger);
+  await handleConsolidateCommand(unauthorized.event, "admin", scheduler, quietSender, quietLogger);
 
   assert.deepEqual(disabled.replies, [
     { content: "Consolidation is not configured.", ephemeral: true },
@@ -51,6 +53,7 @@ test("rejects missing configuration and unauthorized users ephemerally", async (
 
 test("shows the chosen dream start and completion messages", async () => {
   const interaction = recordingInteraction("admin");
+  const channelMessages: Array<{ channelId: string; message: string }> = [];
   const scheduler = {
     async consolidateNow(reporter: { started(): Promise<void>; completed(): Promise<void> }) {
       await reporter.started();
@@ -59,12 +62,18 @@ test("shows the chosen dream start and completion messages", async () => {
     },
   };
 
-  await handleConsolidateCommand(interaction.event, "admin", scheduler, quietLogger);
+  await handleConsolidateCommand(
+    interaction.event,
+    "admin",
+    scheduler,
+    async (channelId, message) => {
+      channelMessages.push({ channelId, message });
+    },
+    quietLogger,
+  );
 
-  assert.deepEqual(interaction.replies, []);
-  assert.deepEqual(interaction.deferred, [true]);
-  assert.equal(interaction.deletedReplies, 1);
-  assert.deepEqual(interaction.followUps, [DREAM_START_MESSAGE, DREAM_COMPLETE_MESSAGE]);
+  assert.deepEqual(interaction.replies, [DREAM_START_MESSAGE]);
+  assert.deepEqual(channelMessages, [{ channelId: "channel-1", message: DREAM_COMPLETE_MESSAGE }]);
 });
 
 test("reports empty, active, and already-running manual requests", async () => {
@@ -80,6 +89,7 @@ test("reports empty, active, and already-running manual requests", async () => {
       interaction.event,
       "admin",
       scriptedScheduler(outcome),
+      quietSender,
       quietLogger,
     );
     assert.deepEqual(interaction.replies, [expected]);
@@ -89,14 +99,8 @@ test("reports empty, active, and already-running manual requests", async () => {
 function recordingInteraction(userId: string): {
   event: DiscordCommandEvent;
   replies: Array<string | { content: string; ephemeral: boolean }>;
-  followUps: Array<string | { content: string; ephemeral: boolean }>;
-  deferred: boolean[];
-  deletedReplies: number;
 } {
   const replies: Array<string | { content: string; ephemeral: boolean }> = [];
-  const followUps: Array<string | { content: string; ephemeral: boolean }> = [];
-  const deferred: boolean[] = [];
-  let deletedReplies = 0;
   return {
     event: {
       name: "consolidate",
@@ -105,22 +109,8 @@ function recordingInteraction(userId: string): {
       async reply(content) {
         replies.push(content);
       },
-      async followUp(content) {
-        followUps.push(content);
-      },
-      async defer(ephemeral) {
-        deferred.push(ephemeral);
-      },
-      async deleteReply() {
-        deletedReplies += 1;
-      },
     },
     replies,
-    followUps,
-    deferred,
-    get deletedReplies() {
-      return deletedReplies;
-    },
   };
 }
 

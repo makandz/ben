@@ -56,17 +56,6 @@ export class DiscordJsGateway implements DiscordGateway {
         reply: async (content) => {
           await interaction.reply(toInteractionResponse(content));
         },
-        followUp: async (content) => {
-          await interaction.followUp(toInteractionResponse(content));
-        },
-        defer: async (ephemeral) => {
-          await interaction.deferReply({
-            ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
-          });
-        },
-        deleteReply: async () => {
-          await interaction.deleteReply();
-        },
       });
     });
     client.on(Events.Error, (error) => {

@@ -2,7 +2,7 @@ import type { Logger } from "../logger.js";
 import type { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
 import type { DiscordCommandEvent, DiscordGateway } from "./DiscordGateway.js";
 
-export const DREAM_START_MESSAGE = "> 🌙 Ben is dreaming...";
+export const DREAM_START_MESSAGE = "> 💤 Ben is dreaming...";
 export const DREAM_COMPLETE_MESSAGE = "> ☀️ Ben woke up.";
 
 export const consolidateCommand = {
@@ -31,6 +31,7 @@ export async function registerConsolidateCommand(
  * @param interaction - Normalized Discord interaction and response capabilities.
  * @param adminUserId - Sole configured user allowed to invoke consolidation.
  * @param scheduler - Shared non-overlapping consolidation coordinator.
+ * @param sendChannelMessage - Normal bot-message delivery to the invoking channel.
  * @param logger - Logger for contained command failures.
  * @returns A promise that resolves after the command's final response is sent.
  */
@@ -38,6 +39,7 @@ export async function handleConsolidateCommand(
   interaction: DiscordCommandEvent,
   adminUserId: string | undefined,
   scheduler: Pick<MemoryConsolidationScheduler, "consolidateNow">,
+  sendChannelMessage: (channelId: string, message: string) => Promise<void>,
   logger: Pick<Logger, "warn">,
 ): Promise<void> {
   if (adminUserId === undefined) {
@@ -55,21 +57,19 @@ export async function handleConsolidateCommand(
     return;
   }
 
-  let acknowledged = false;
+  let started = false;
   try {
     const outcome = await scheduler.consolidateNow({
       async started() {
-        await interaction.defer(true);
-        acknowledged = true;
-        await interaction.deleteReply();
-        await interaction.followUp(DREAM_START_MESSAGE);
+        started = true;
+        await interaction.reply(DREAM_START_MESSAGE);
       },
       async completed() {
-        await interaction.followUp(DREAM_COMPLETE_MESSAGE);
+        await sendChannelMessage(interaction.channelId, DREAM_COMPLETE_MESSAGE);
       },
       async failed() {
         const content = "Consolidation failed. Short-term memories were preserved.";
-        if (acknowledged) await interaction.followUp(content);
+        if (started) await sendChannelMessage(interaction.channelId, content);
         else await interaction.reply(content);
       },
     });

@@ -241,6 +241,9 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
             event,
             env.discordAdminUserId,
             memoryConsolidationScheduler,
+            async (channelId, message) => {
+              await transport.sendMessage(channelId, message);
+            },
             logger,
           );
         }

@@ -112,7 +112,6 @@ test("adapter forwards normalized slash-command identity and responses", async (
       handleCommand: (event) => {
         commands.push(`${event.name}:${event.userId}:${event.channelId}`);
         void event.reply("started");
-        void event.followUp("finished");
       },
     },
     new UserMentionDirectory(),
@@ -121,9 +120,6 @@ test("adapter forwards normalized slash-command identity and responses", async (
   );
 
   const replies: string[] = [];
-  const followUps: string[] = [];
-  const deferred: boolean[] = [];
-  let deleted = 0;
   gateway.handlers?.command({
     name: "consolidate",
     userId: "admin",
@@ -131,23 +127,11 @@ test("adapter forwards normalized slash-command identity and responses", async (
     async reply(content) {
       replies.push(typeof content === "string" ? content : content.content);
     },
-    async followUp(content) {
-      followUps.push(typeof content === "string" ? content : content.content);
-    },
-    async defer(ephemeral) {
-      deferred.push(ephemeral);
-    },
-    async deleteReply() {
-      deleted += 1;
-    },
   });
   await Promise.resolve();
 
   assert.deepEqual(commands, ["consolidate:admin:channel-1"]);
   assert.deepEqual(replies, ["started"]);
-  assert.deepEqual(followUps, ["finished"]);
-  assert.deepEqual(deferred, []);
-  assert.equal(deleted, 0);
   void adapter;
 });
 

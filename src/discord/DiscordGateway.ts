@@ -37,9 +37,6 @@ export type DiscordCommandEvent = {
   userId: string;
   channelId: string;
   reply(content: DiscordInteractionResponse): Promise<void>;
-  followUp(content: DiscordInteractionResponse): Promise<void>;
-  defer(ephemeral: boolean): Promise<void>;
-  deleteReply(): Promise<void>;
 };
 
 export type DiscordCommandDefinition = {
