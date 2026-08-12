@@ -19,18 +19,18 @@ import type {
 } from "../DiscordGateway.js";
 import { createScheduledMessageDelivery } from "../ScheduledMessageDelivery.js";
 import { createScheduledMessageTool } from "../tools/createScheduledMessage.js";
-import { createRememberPersonTool } from "../tools/rememberPerson.js";
+import { createRememberNameTool } from "../tools/rememberName.js";
 import { createSendMessageTool } from "../tools/sendChannelMessage.js";
 
 const general: DiscordChannel = { id: "general", name: "general", guildId: "guild" };
 const plans: DiscordChannel = { id: "plans", name: "plans", guildId: "guild" };
 const logger = { warn() {} };
 
-test("remember-person verifies the member, stores them, and reports success", async () => {
+test("remember-name verifies the member, stores them, and reports success", async () => {
   const gateway = new FakeGateway();
   gateway.members = [{ id: "one", username: "makan", displayName: "Makan", bot: false }];
   const remembered: unknown[] = [];
-  const tool = createRememberPersonTool({
+  const tool = createRememberNameTool({
     gateway,
     users: new UserMentionDirectory(),
     store: {
@@ -53,10 +53,10 @@ test("remember-person verifies the member, stores them, and reports success", as
   assert.deepEqual(gateway.sent[0]?.options, { allowUserMentions: false });
 });
 
-test("remember-person controls empty, ambiguous, duplicate, and lookup failures", async () => {
+test("remember-name controls empty, ambiguous, duplicate, and lookup failures", async () => {
   const gateway = new FakeGateway();
   const create = (storeResult = { ok: false as const, error: "already known" }) =>
-    createRememberPersonTool({
+    createRememberNameTool({
       gateway,
       users: new UserMentionDirectory(),
       store: {
@@ -294,7 +294,7 @@ test("scheduled delivery pings only stored target IDs with an explicit mention p
 test("Discord capability tools register through the generic tool registry", () => {
   const gateway = new FakeGateway();
   const sendMessage = createSendTool();
-  const rememberPerson = createRememberPersonTool({
+  const rememberName = createRememberNameTool({
     gateway,
     users: new UserMentionDirectory(),
     store: {
@@ -316,7 +316,7 @@ test("Discord capability tools register through the generic tool registry", () =
   );
   const registry = new ToolRegistry([
     sendMessage,
-    rememberPerson,
+    rememberName,
     scheduledMessage,
     waitTool,
     sleepTool,
@@ -324,7 +324,7 @@ test("Discord capability tools register through the generic tool registry", () =
 
   assert.deepEqual(
     registry.definitions().map(({ name }) => name),
-    ["message", "remember_person", "create_scheduled_message", "wait", "sleep"],
+    ["message", "remember_name", "create_scheduled_message", "wait", "sleep"],
   );
 });
 

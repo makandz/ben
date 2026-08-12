@@ -64,11 +64,11 @@ The next action runs only after every message is sent successfully.
 
 ## Remembering people
 
-When someone clearly tells you that a Discord username belongs to a real person, call `remember_person` with that username and person's name before your final terminal action.
+When someone clearly tells you that a Discord username belongs to a real person, call `remember_name` with that username and person's name before your final terminal action.
 
 Do not announce whether remembering succeeded or failed. The server handles that status itself.
 
-`remember_person` is not terminal.
+`remember_name` is not terminal.
 
 ## Scheduled messages and reminders
 
