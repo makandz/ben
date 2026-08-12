@@ -79,7 +79,7 @@ export function createRememberNameTool(dependencies: RememberNameToolDependencie
           dependencies.logger,
           "discord.remember_status_failed",
           channelId,
-          `> 🧠 Remembering that "${result.username}" is "${result.name}"`,
+          `> Remembering "${result.username}" is "${result.name}"`,
         );
         return { type: "continue", result };
       } catch (error) {

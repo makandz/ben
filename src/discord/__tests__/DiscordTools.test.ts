@@ -49,7 +49,7 @@ test("remember-name verifies the member, stores them, and reports success", asyn
     result: { ok: true, username: "makan", name: "Makan A." },
   });
   assert.deepEqual(remembered, [{ userId: "one", username: "makan", name: "Makan A." }]);
-  assert.match(gateway.sent[0]?.content ?? "", /Remembering/);
+  assert.equal(gateway.sent[0]?.content, '> Remembering "makan" is "Makan A."');
   assert.deepEqual(gateway.sent[0]?.options, { allowUserMentions: false });
 });
 
@@ -85,6 +85,7 @@ test("remember-name controls empty, ambiguous, duplicate, and lookup failures", 
     JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),
     /already known/,
   );
+  assert.match(gateway.sent.at(-1)?.content ?? "", /^> ⚠️ Failed to remember/);
   gateway.memberError = new Error("Discord unavailable");
   assert.match(
     JSON.stringify(await execute(create(), { username: "sam", name: "Sam" })),

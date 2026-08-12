@@ -67,7 +67,7 @@ test("summary store ignores malformed entries and contains malformed files", asy
   assert.deepEqual(await store.list(), []);
 });
 
-test("known-people store reads the current shape and rejects ID and username duplicates", async (t) => {
+test("known-people store reads the current shape, updates IDs, and rejects username duplicates", async (t) => {
   const directory = await tempDirectory(t);
   const filePath = path.join(directory, "known-people.json");
   await copyFile("src/testing/fixtures/known-people.json", filePath);
@@ -86,10 +86,10 @@ test("known-people store reads the current shape and rejects ID and username dup
   assert.deepEqual(
     await store.remember({
       userId: "100000000000000002",
-      username: "other",
-      name: "Other",
+      username: "New_User",
+      name: "Updated Person",
     }),
-    { ok: false, error: 'New_User is already remembered as "New Person"' },
+    { ok: true, username: "New_User", name: "Updated Person" },
   );
   assert.deepEqual(
     await store.remember({
@@ -97,8 +97,13 @@ test("known-people store reads the current shape and rejects ID and username dup
       username: "new_user",
       name: "Duplicate",
     }),
-    { ok: false, error: 'New_User is already remembered as "New Person"' },
+    { ok: false, error: 'New_User is already remembered as "Updated Person"' },
   );
+  assert.deepEqual(await store.listForPrompt(), {
+    sample_user: { name: "Sample" },
+    new_user: { name: "Updated Person" },
+    second: { name: "Second" },
+  });
   assert.deepEqual(await readdir(directory), ["known-people.json"]);
 });
 
