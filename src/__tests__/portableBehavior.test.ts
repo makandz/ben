@@ -5,7 +5,7 @@ import { escapeBroadcastMentions } from "../discord/mentions.js";
 import { calculateCostUsd, getModelPricing } from "../model/pricing.js";
 import { buildUserPrompt, formatMessages } from "../prompting/formatMessages.js";
 import { composeInstructions, loadBasePrompt } from "../prompting/promptLayers.js";
-import { loadSystemPrompt } from "../prompting/systemPrompt.js";
+import { loadMessagingPrompt } from "../prompting/messagingPrompt.js";
 
 const messageBase = {
   channelId: "channel",
@@ -112,10 +112,10 @@ test("formats a reset Discord custom status explicitly", () => {
   assert.match(result, /^Current Discord custom status: none\./);
 });
 
-test("loads the copied system prompt and falls back for a missing file", async () => {
-  const loaded = await loadSystemPrompt();
-  const fallback = await loadSystemPrompt(
-    new URL("file:///definitely-missing-ben-system-prompt.txt"),
+test("loads the copied messaging prompt and falls back for a missing file", async () => {
+  const loaded = await loadMessagingPrompt();
+  const fallback = await loadMessagingPrompt(
+    new URL("file:///definitely-missing-ben-messaging-prompt.txt"),
   );
 
   assert.match(loaded, /Ben/);
