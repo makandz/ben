@@ -57,6 +57,7 @@ function message(id: string, channelId = "channel-a", username = "Makan"): Human
   return {
     id,
     channelId,
+    channelName: channelId === "channel-a" ? "general" : "plans",
     userId: username.toLowerCase(),
     username,
     content: id,
@@ -316,6 +317,7 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
   const firstPrompt = orchestrator.calls[0]?.userText ?? "";
   const secondPrompt = orchestrator.calls[1]?.userText ?? "";
   assert.match(firstPrompt, /Known people:\n- makan is Makan A\./);
+  assert.match(firstPrompt, /Current Discord channel: #general\./);
   assert.match(firstPrompt, /Ben was pinged by Makan \(Makan A\.\)/);
   assert.match(firstPrompt, /Recent conversations:\n- The group planned dinner\./);
   assert.match(
@@ -328,6 +330,7 @@ test("loads persisted wake context, names speakers each turn, and saves the slee
     /Short-term memories:\n- \[0\] The group likes pizza\.\n- \[2\] Makan prefers concise answers\./,
   );
   assert.doesNotMatch(secondPrompt, /Known people:/);
+  assert.doesNotMatch(secondPrompt, /Current Discord channel:/);
   assert.doesNotMatch(secondPrompt, /Recent conversations:/);
   assert.doesNotMatch(secondPrompt, /Long-term memory/);
   assert.doesNotMatch(secondPrompt, /Short-term memories:/);

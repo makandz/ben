@@ -79,6 +79,7 @@ export class DiscordAdapter {
     const normalized: HumanMessage = {
       id: message.id,
       channelId: message.channel.id,
+      ...(message.channel.name === undefined ? {} : { channelName: message.channel.name }),
       userId: message.author.id,
       username: message.author.username,
       content: this.channels.convertMentionsToNames(withUsernames),

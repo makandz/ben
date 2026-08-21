@@ -17,6 +17,7 @@ export type UserPromptOptions = {
   knownPeople?: KnownPeople;
   includeKnownPeople?: boolean;
   currentBotTime?: string;
+  currentChannelName?: string;
   currentCustomStatus?: string | null;
   pingedByUsername?: string;
   longTermMemory?: string;
@@ -59,6 +60,10 @@ export function buildUserPrompt(options: UserPromptOptions): string {
 
   if (options.currentBotTime !== undefined) {
     sections.push(`Current bot time: ${options.currentBotTime}.`);
+  }
+
+  if (options.currentChannelName !== undefined) {
+    sections.push(`Current Discord channel: #${options.currentChannelName}.`);
   }
 
   if (options.currentCustomStatus !== undefined) {

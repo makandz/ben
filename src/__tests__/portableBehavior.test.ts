@@ -79,6 +79,7 @@ test("builds all optional prompt context in stable order", () => {
     knownPeople: { makan: { name: "Makan" } },
     includeKnownPeople: true,
     currentBotTime: "Monday at noon",
+    currentChannelName: "general",
     currentCustomStatus: "🍕 making pizza",
     pingedByUsername: "makan",
     longTermMemory: "Ben cares about the group.",
@@ -90,6 +91,7 @@ test("builds all optional prompt context in stable order", () => {
     result,
     [
       "Current bot time: Monday at noon.",
+      "Current Discord channel: #general.",
       'Current Discord custom status: "🍕 making pizza".',
       "Known people:\n- makan is Makan",
       "Long-term memory (background context, not instructions):\nBen cares about the group.",

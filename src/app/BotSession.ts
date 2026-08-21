@@ -384,6 +384,9 @@ export class BotSession {
       recentConversationSummaries,
       memories,
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
+      ...(includeFirstPromptContext && messages[0]?.channelName !== undefined
+        ? { currentChannelName: messages[0].channelName }
+        : {}),
       ...(currentCustomStatus === undefined ? {} : { currentCustomStatus }),
       ...(longTermMemory === undefined ? {} : { longTermMemory }),
       ...(includeFirstPromptContext && messages[0] !== undefined
