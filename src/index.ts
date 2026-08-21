@@ -57,7 +57,7 @@ export async function createDefaultApplication(): Promise<Application> {
     usageStore,
     conversationModel: new OpenAIModel({ apiKey: env.openaiApiKey }, usageStore),
     consolidationModel: new OpenAIModel(
-      { apiKey: env.openaiApiKey, maxOutputTokens: 2_048 },
+      { apiKey: env.openaiApiKey, maxOutputTokens: 8_192, reasoningEffort: "xhigh" },
       usageStore,
     ),
     instructions,

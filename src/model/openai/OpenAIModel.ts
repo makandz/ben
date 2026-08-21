@@ -3,6 +3,7 @@ import type {
   Response,
   ResponseCreateParamsNonStreaming,
 } from "openai/resources/responses/responses";
+import type { ReasoningEffort } from "openai/resources/shared";
 
 import {
   ModelBudgetExceededError,
@@ -25,12 +26,14 @@ export type OpenAIModelOptions = {
   apiKey: string;
   model?: string;
   maxOutputTokens?: number;
+  reasoningEffort?: Exclude<ReasoningEffort, null>;
 };
 
 /** Implements the provider-neutral model contract with the OpenAI Responses API. */
 export class OpenAIModel implements Model {
   private readonly model: string;
   private readonly maxOutputTokens: number;
+  private readonly reasoningEffort: Exclude<ReasoningEffort, null>;
   private readonly responses: ResponsesClient;
   private readonly mapper = new OpenAIMapper();
 
@@ -49,6 +52,7 @@ export class OpenAIModel implements Model {
   ) {
     this.model = options.model ?? OPENAI_CONVERSATION_MODEL;
     this.maxOutputTokens = options.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+    this.reasoningEffort = options.reasoningEffort ?? "high";
     this.responses = responses ?? new OpenAI({ apiKey: options.apiKey }).responses;
     getModelPricing(this.model);
 
@@ -80,7 +84,7 @@ export class OpenAIModel implements Model {
         ? {}
         : { tools, tool_choice: "required" as const, parallel_tool_calls: false }),
       max_output_tokens: this.maxOutputTokens,
-      reasoning: { effort: "high" },
+      reasoning: { effort: this.reasoningEffort },
       include: ["reasoning.encrypted_content"],
       store: false,
     });

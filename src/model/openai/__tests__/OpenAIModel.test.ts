@@ -86,22 +86,26 @@ test("supports requests without forcing a tool call", async (context) => {
   const directory = await createTempDirectory(context);
   const usageStore = new OpenAIUsageStore(directory, "gpt-5.4-mini", 0);
   let request: ResponseCreateParamsNonStreaming | undefined;
-  const model = new OpenAIModel({ apiKey: "test", maxOutputTokens: 96 }, usageStore, {
-    async create(params): Promise<Response> {
-      request = params;
-      return {
-        output: [
-          {
-            id: "message-1",
-            type: "message",
-            role: "assistant",
-            status: "completed",
-            content: [{ type: "output_text", text: "hello", annotations: [] }],
-          },
-        ],
-      } as unknown as Response;
+  const model = new OpenAIModel(
+    { apiKey: "test", maxOutputTokens: 8_192, reasoningEffort: "xhigh" },
+    usageStore,
+    {
+      async create(params): Promise<Response> {
+        request = params;
+        return {
+          output: [
+            {
+              id: "message-1",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [{ type: "output_text", text: "hello", annotations: [] }],
+            },
+          ],
+        } as unknown as Response;
+      },
     },
-  });
+  );
 
   const turn = await model.invoke({
     instructions: "Be concise.",
@@ -111,6 +115,8 @@ test("supports requests without forcing a tool call", async (context) => {
 
   assert.equal("tools" in (request ?? {}), false);
   assert.equal("tool_choice" in (request ?? {}), false);
+  assert.equal(request?.max_output_tokens, 8_192);
+  assert.deepEqual(request?.reasoning, { effort: "xhigh" });
   assert.deepEqual(turn.items, [{ type: "message", role: "assistant", text: "hello" }]);
 });
 
