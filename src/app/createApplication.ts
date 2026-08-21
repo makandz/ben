@@ -21,6 +21,7 @@ import { createRememberNameTool } from "../discord/tools/rememberName.js";
 import { createReactToMessageTool } from "../discord/tools/reactToMessage.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
 import { sendToolStatus } from "../discord/tools/toolSupport.js";
+import { createThinkTool } from "../discord/tools/think.js";
 import { createUpdateCustomStatusTool } from "../discord/tools/updateCustomStatus.js";
 import type { Model } from "../model/Model.js";
 import { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
@@ -135,6 +136,12 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       getActiveChannelId: () => session.getActiveChannelId(),
       isMessageInActiveConversation: (messageId) =>
         session.isMessageInActiveConversation(messageId),
+    }),
+  );
+  tools.register(
+    createThinkTool({
+      transport,
+      getActiveChannelId: () => session.getActiveChannelId(),
     }),
   );
   tools.register(

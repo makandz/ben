@@ -10,7 +10,7 @@ import { OpenAIModel, OPENAI_CONVERSATION_MODEL } from "./model/openai/OpenAIMod
 import { OpenAIUsageStore } from "./model/openai/OpenAIUsageStore.js";
 import { loadMemoryConsolidationPrompt } from "./prompting/memoryConsolidationPrompt.js";
 import { composeInstructions, loadBasePrompt } from "./prompting/promptLayers.js";
-import { loadSystemPrompt } from "./prompting/systemPrompt.js";
+import { loadMessagingPrompt } from "./prompting/messagingPrompt.js";
 
 export { loadEnv, type AppEnv, type LogLevel };
 export { Logger, type LogData } from "./logger.js";
@@ -44,7 +44,7 @@ export async function createDefaultApplication(): Promise<Application> {
     logger,
   );
   const [baseInstructions, conversationInstructions, consolidationTaskInstructions] =
-    await Promise.all([loadBasePrompt(), loadSystemPrompt(), loadMemoryConsolidationPrompt()]);
+    await Promise.all([loadBasePrompt(), loadMessagingPrompt(), loadMemoryConsolidationPrompt()]);
   const instructions = composeInstructions(baseInstructions, conversationInstructions);
   const consolidationInstructions = composeInstructions(
     baseInstructions,

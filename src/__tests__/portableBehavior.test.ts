@@ -5,7 +5,7 @@ import { escapeBroadcastMentions } from "../discord/mentions.js";
 import { calculateCostUsd, getModelPricing } from "../model/pricing.js";
 import { buildUserPrompt, formatMessages } from "../prompting/formatMessages.js";
 import { composeInstructions, loadBasePrompt } from "../prompting/promptLayers.js";
-import { loadSystemPrompt } from "../prompting/systemPrompt.js";
+import { loadMessagingPrompt } from "../prompting/messagingPrompt.js";
 
 const messageBase = {
   channelId: "channel",
@@ -68,7 +68,7 @@ test("preserves one addressable transcript line per non-empty message", () => {
 
   assert.equal(
     result,
-    "<message_id:1> makan (Makan): hi\n<message_id:2> makan (Makan): there friend\n<message_id:4> sam: hello",
+    "<message_id:1> makan (Makan): hi\n<message_id:2> makan (Makan): there friend\n<message_id:4> sam (unknown): hello",
   );
 });
 
@@ -96,7 +96,7 @@ test("builds all optional prompt context in stable order", () => {
       "Short-term memories:\n- [3] Makan likes concise answers.",
       "Recent conversations:\n- They discussed lunch.",
       "Ben was pinged by makan (Makan).",
-      "Recent context:\n<message_id:1> sam: earlier",
+      "Recent context:\n<message_id:1> sam (unknown): earlier",
       "New messages:\n<message_id:2> makan (Makan): hello",
     ].join("\n\n"),
   );
@@ -112,10 +112,10 @@ test("formats a reset Discord custom status explicitly", () => {
   assert.match(result, /^Current Discord custom status: none\./);
 });
 
-test("loads the copied system prompt and falls back for a missing file", async () => {
-  const loaded = await loadSystemPrompt();
-  const fallback = await loadSystemPrompt(
-    new URL("file:///definitely-missing-ben-system-prompt.txt"),
+test("loads the copied messaging prompt and falls back for a missing file", async () => {
+  const loaded = await loadMessagingPrompt();
+  const fallback = await loadMessagingPrompt(
+    new URL("file:///definitely-missing-ben-messaging-prompt.txt"),
   );
 
   assert.match(loaded, /Ben/);

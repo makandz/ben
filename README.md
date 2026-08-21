@@ -60,4 +60,4 @@ pnpm format:check
 pnpm build
 ```
 
-Ben's personality and behavior are defined in [`src/prompts/system.txt`](src/prompts/system.txt). In development, prompt edits take effect on the next model request without a restart.
+Ben's personality and behavior are defined by the Markdown files in [`src/prompts`](src/prompts). In development, editing a prompt restarts Ben automatically, so the new instructions apply after it reconnects.
