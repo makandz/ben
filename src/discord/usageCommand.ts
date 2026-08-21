@@ -51,7 +51,8 @@ export async function handleUsageCommand(
  * @returns Compact user-facing usage text.
  */
 export function formatUsageSummary(summary: UsageSummary): string {
-  return `${formatInteger(summary.inputTokens)}/${formatInteger(summary.cachedInputTokens)}/${formatInteger(summary.outputTokens)} (input/cached/output) - ${formatUsd(summary.costUsd)} (${formatUsagePercent(summary)}) - ${summary.model}`;
+  const uncachedInputTokens = Math.max(0, summary.inputTokens - summary.cachedInputTokens);
+  return `${formatInteger(uncachedInputTokens)}/${formatInteger(summary.cachedInputTokens)}/${formatInteger(summary.outputTokens)} (uncached/cached/output) - ${formatUsd(summary.costUsd)} (${formatUsagePercent(summary)}) - ${summary.model}`;
 }
 
 /** Formats an integer with locale-appropriate grouping separators. */
