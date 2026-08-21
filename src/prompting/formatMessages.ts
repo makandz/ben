@@ -1,4 +1,5 @@
 import type { HumanMessage } from "../app/types.js";
+import type { AutonomousTask } from "../storage/TaskStore.js";
 
 export type KnownPeople = Readonly<Record<string, { name: string }>>;
 
@@ -23,6 +24,7 @@ export type UserPromptOptions = {
   longTermMemory?: string;
   recentConversationSummaries?: readonly ConversationSummary[];
   memories?: readonly MemoryItem[];
+  task?: AutonomousTask;
 };
 
 /**
@@ -105,13 +107,31 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     sections.push(`Ben was pinged by ${formatSpeaker(options.pingedByUsername, knownPeople)}.`);
   }
 
+  if (options.task !== undefined) {
+    sections.push(formatTaskWake(options.task));
+  }
+
   if (options.recentContext.length > 0) {
     sections.push(`Recent context:\n${formatMessages(options.recentContext, knownPeople)}`);
   }
 
-  sections.push(`New messages:\n${formatMessages(options.messages, knownPeople)}`);
+  if (options.task === undefined || options.messages.length > 0) {
+    sections.push(`New messages:\n${formatMessages(options.messages, knownPeople)}`);
+  }
 
   return sections.join("\n\n");
+}
+
+/** Formats the task as Ben's own previously authored intention. */
+function formatTaskWake(task: AutonomousTask): string {
+  return [
+    "Ben was awakened by a scheduled task that Ben previously created for itself.",
+    `Task: ${task.name}`,
+    `Description: ${task.description}`,
+    `Instructions Ben wrote for itself:\n${task.instructions}`,
+    `Schedule: one time on ${task.runDate} at ${task.runTime}`,
+    `Scheduled occurrence: ${task.nextRunAt}`,
+  ].join("\n");
 }
 
 /** Builds one prompt section's speaker label. */

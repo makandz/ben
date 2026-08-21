@@ -44,6 +44,11 @@ export type TaskMutationResult =
   | { ok: true; task: AutonomousTask; revision: number }
   | { ok: false; error: string; revision: number };
 
+export type TaskCompletionResult = {
+  deleted: boolean;
+  revision: number;
+};
+
 type TasksData = {
   version: number;
   revision: number;
@@ -170,6 +175,50 @@ export class TaskStore {
       data.revision += 1;
       await writeJsonFileAtomic(this.filePath, data);
       return { ok: true, task, revision: data.revision };
+    });
+  }
+
+  /**
+   * Lists one-time tasks whose next run is due.
+   *
+   * @param now - Inclusive upper bound for due task timestamps.
+   * @returns Due one-time tasks ordered by scheduled time and creation time.
+   */
+  async listDueOneTime(now: Date): Promise<AutonomousTask[]> {
+    const data = await this.read();
+    return data.tasks
+      .filter(
+        (task) => task.repeat === "none" && new Date(task.nextRunAt).getTime() <= now.getTime(),
+      )
+      .sort(
+        (left, right) =>
+          left.nextRunAt.localeCompare(right.nextRunAt) ||
+          left.createdAt.localeCompare(right.createdAt),
+      );
+  }
+
+  /**
+   * Permanently removes a completed one-time task when it still exists.
+   *
+   * Missing tasks are treated as already completed so manual deletion races are harmless.
+   *
+   * @param id - Stable identifier of the completed task.
+   * @param expectedUpdatedAt - Version timestamp captured when the occurrence was claimed.
+   * @returns Whether this call deleted the task and the resulting store revision.
+   */
+  async completeOneTime(id: string, expectedUpdatedAt: string): Promise<TaskCompletionResult> {
+    return this.updates.run(async () => {
+      const data = await this.read();
+      const index = data.tasks.findIndex((task) => task.id === id);
+      if (index < 0) return { deleted: false, revision: data.revision };
+      const task = data.tasks[index];
+      if (task?.repeat !== "none" || task.updatedAt !== expectedUpdatedAt) {
+        return { deleted: false, revision: data.revision };
+      }
+      data.tasks.splice(index, 1);
+      data.revision += 1;
+      await writeJsonFileAtomic(this.filePath, data);
+      return { deleted: true, revision: data.revision };
     });
   }
 

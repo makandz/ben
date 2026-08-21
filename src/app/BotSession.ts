@@ -5,6 +5,7 @@ import { formatUsd } from "../util/formatCurrency.js";
 import type { ChatTransport } from "./ChatTransport.js";
 import type { PresenceTransport } from "./PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "./types.js";
+import type { AutonomousTask } from "../storage/TaskStore.js";
 
 const MESSAGE_DEBOUNCE_MS = 5_000;
 const TYPING_DEBOUNCE_MS = 10_000;
@@ -61,11 +62,23 @@ export type BotSessionPromptContext = {
 
 type TypingActivity = { expiresAt: number };
 
-type QueuedWake = {
+type HumanWake = {
+  kind: "human";
   channelId: string;
   messages: HumanMessage[];
   recentContext: HumanMessage[];
 };
+
+type TaskWake = {
+  kind: "task";
+  channelId: string;
+  task: AutonomousTask;
+  messages: HumanMessage[];
+  recentContext: HumanMessage[];
+  complete: () => Promise<void>;
+};
+
+type QueuedWake = HumanWake | TaskWake;
 
 const productionTimings: SessionTimings = {
   messageDebounceMs: MESSAGE_DEBOUNCE_MS,
@@ -92,6 +105,9 @@ export class BotSession {
   private typingTimer: NodeJS.Timeout | undefined;
   private activeMessageIds = new Set<string>();
   private activeCreator: ActiveConversationUser | undefined;
+  private activeTaskWake: TaskWake | undefined;
+  private taskPromptPending = false;
+  private taskStarting = false;
 
   /**
    * Creates the application session state machine.
@@ -138,7 +154,13 @@ export class BotSession {
     this.rememberMessage(message);
 
     if (this.mode === "sleeping") {
-      if (pinged) this.wake([message], recentContext);
+      if (pinged)
+        this.activateWake({
+          kind: "human",
+          channelId: message.channelId,
+          messages: [message],
+          recentContext,
+        });
       return;
     }
 
@@ -148,7 +170,12 @@ export class BotSession {
       if (queued !== undefined) {
         queued.messages.push(message);
       } else if (pinged) {
-        this.queuedWakes.push({ channelId: message.channelId, messages: [message], recentContext });
+        this.queuedWakes.push({
+          kind: "human",
+          channelId: message.channelId,
+          messages: [message],
+          recentContext,
+        });
       }
 
       return;
@@ -164,6 +191,28 @@ export class BotSession {
     this.pendingBatch.push(message);
     this.scheduleDebounce();
     this.resetIdleTimer();
+  }
+
+  /**
+   * Queues a self-authored task wake without fabricating a human message.
+   *
+   * The task starts immediately only while Ben is sleeping; otherwise it waits FIFO behind the
+   * active conversation and any earlier wakes.
+   *
+   * @param task - Persisted one-time task to run in its resolved destination channel.
+   * @param complete - Durable completion callback invoked when the task conversation sleeps.
+   */
+  enqueueTask(task: AutonomousTask, complete: () => Promise<void>): void {
+    const wake: TaskWake = {
+      kind: "task",
+      channelId: task.destination.channelId,
+      task,
+      messages: [],
+      recentContext: this.getSleepingContext(task.destination.channelId),
+      complete,
+    };
+    if (this.mode === "sleeping") this.activateWake(wake);
+    else this.queuedWakes.push(wake);
   }
 
   /**
@@ -252,27 +301,49 @@ export class BotSession {
     this.promoteQueuedWake();
   }
 
-  /** Starts a conversation from a ping or promoted queued wake. */
-  private wake(messages: HumanMessage[], recentContext: HumanMessage[]): void {
-    const first = messages[0];
-    if (first === undefined) return;
-
+  /** Starts a conversation from a human ping or autonomous task wake. */
+  private activateWake(wake: QueuedWake): void {
     this.mode = "awake";
-    this.activeChannelId = first.channelId;
-    this.pendingBatch = messages;
-    this.pendingRecentContext = recentContext;
-    this.activeMessageIds = new Set([...recentContext, ...messages].map((message) => message.id));
+    this.activeChannelId = wake.channelId;
+    this.pendingBatch = wake.messages;
+    this.pendingRecentContext = wake.recentContext;
+    this.activeMessageIds = new Set(
+      [...wake.recentContext, ...wake.messages].map((message) => message.id),
+    );
     this.queuedDuringProcessing = [];
     this.history = [];
+    this.activeTaskWake = wake.kind === "task" ? wake : undefined;
+    this.taskPromptPending = wake.kind === "task";
+    if (wake.kind === "task" && !this.lastMessageAt.has(wake.channelId)) {
+      this.lastMessageAt.set(wake.channelId, Date.now());
+    }
     this.presence.setPresence({ status: "online" });
-    this.logger.info("session.wake", { channelId: first.channelId, messages: messages.length });
-    this.scheduleDebounce();
+    this.logger.info("session.wake", {
+      channelId: wake.channelId,
+      source: wake.kind,
+      messages: wake.messages.length,
+    });
+    if (wake.kind === "task") void this.startTaskWake(wake);
+    else this.scheduleDebounce();
     this.resetIdleTimer();
+  }
+
+  /** Sends the visible start line before allowing the task's first model turn. */
+  private async startTaskWake(wake: TaskWake): Promise<void> {
+    this.taskStarting = true;
+    await this.transport
+      .sendMessage(wake.channelId, `> ⏰ Ben is starting task ${JSON.stringify(wake.task.name)}...`)
+      .catch((error: unknown) => {
+        this.logger.warn("tasks.start_status_failed", { id: wake.task.id, error: String(error) });
+      });
+    this.taskStarting = false;
+    if (this.activeTaskWake === wake && this.mode === "awake") this.scheduleDebounce();
   }
 
   /** Schedules processing after both message and typing activity settle. */
   private scheduleDebounce(): void {
-    const channelId = this.pendingBatch[0]?.channelId;
+    if (this.taskStarting) return;
+    const channelId = this.activeChannelId;
     if (channelId === undefined) return;
     if (this.debounceTimer !== undefined) clearTimeout(this.debounceTimer);
 
@@ -286,7 +357,7 @@ export class BotSession {
 
   /** Processes a due batch or reschedules it for remaining typing activity. */
   private processIfSettled(): void {
-    const channelId = this.pendingBatch[0]?.channelId;
+    const channelId = this.activeChannelId;
     if (channelId === undefined) return;
 
     const now = Date.now();
@@ -329,17 +400,20 @@ export class BotSession {
 
   /** Runs one model turn and applies its terminal outcome. */
   private async processPendingBatch(): Promise<void> {
-    if (this.mode !== "awake" || this.pendingBatch.length === 0) return;
+    if (this.mode !== "awake" || (this.pendingBatch.length === 0 && !this.taskPromptPending))
+      return;
 
     if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
     this.idleTimer = undefined;
     const messages = this.pendingBatch;
     const recentContext = this.pendingRecentContext;
-    const channelId = messages[0]?.channelId;
+    const channelId = this.activeChannelId;
+    const taskWake = this.taskPromptPending ? this.activeTaskWake : undefined;
+    this.taskPromptPending = false;
     this.pendingBatch = [];
     this.pendingRecentContext = [];
     this.mode = "processing";
-    const creator = messages[0];
+    const creator = taskWake === undefined ? messages[0] : undefined;
     this.activeCreator =
       creator === undefined ? undefined : { userId: creator.userId, username: creator.username };
 
@@ -386,12 +460,15 @@ export class BotSession {
       ...(currentBotTime === undefined ? {} : { currentBotTime }),
       ...(includeFirstPromptContext && messages[0]?.channelName !== undefined
         ? { currentChannelName: messages[0].channelName }
-        : {}),
+        : includeFirstPromptContext && taskWake !== undefined
+          ? { currentChannelName: taskWake.task.destination.channelName }
+          : {}),
       ...(currentCustomStatus === undefined ? {} : { currentCustomStatus }),
       ...(longTermMemory === undefined ? {} : { longTermMemory }),
       ...(includeFirstPromptContext && messages[0] !== undefined
         ? { pingedByUsername: messages[0].username }
         : {}),
+      ...(taskWake === undefined ? {} : { task: taskWake.task }),
     });
     try {
       const outcome = await this.orchestrator
@@ -489,6 +566,7 @@ export class BotSession {
 
   /** Clears conversation memory, then promotes the oldest queued channel. */
   private goToSleep(reason: "model" | "idle"): void {
+    const completedTask = this.activeTaskWake;
     this.clearTimers();
     this.mode = "sleeping";
     this.activeChannelId = undefined;
@@ -498,9 +576,21 @@ export class BotSession {
     this.history = [];
     this.activeMessageIds.clear();
     this.activeCreator = undefined;
+    this.activeTaskWake = undefined;
+    this.taskPromptPending = false;
+    this.taskStarting = false;
     this.typingByChannel.clear();
     this.presence.setPresence({ status: "idle" });
     this.logger.info("session.sleep", { reason, queuedChannels: this.queuedWakes.length });
+
+    if (completedTask !== undefined) {
+      void completedTask.complete().catch((error: unknown) => {
+        this.logger.warn("tasks.completion_callback_failed", {
+          id: completedTask.task.id,
+          error: String(error),
+        });
+      });
+    }
 
     this.promoteQueuedWake();
   }
@@ -508,7 +598,7 @@ export class BotSession {
   /** Promotes the oldest queued ping into a fresh conversation. */
   private promoteQueuedWake(): void {
     const next = this.queuedWakes.shift();
-    if (next !== undefined) this.wake(next.messages, next.recentContext);
+    if (next !== undefined) this.activateWake(next);
   }
 
   /** Stores bounded recent context independently for each channel. */

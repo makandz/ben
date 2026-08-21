@@ -94,6 +94,49 @@ test("task store ignores malformed entries and rejects malformed JSON", async (t
   await assert.rejects(() => store.list(), /must contain valid JSON/);
 });
 
+test("task store lists due one-time tasks and completes them idempotently", async (t) => {
+  const { store } = await createStore(t);
+  const oneTime = await store.create(0, definition("One time"), instant(0));
+  const recurring = await store.create(1, definition("Recurring", "daily"), instant(1));
+  assert.equal(oneTime.ok, true);
+  assert.equal(recurring.ok, true);
+  if (!oneTime.ok) return;
+
+  const due = await store.listDueOneTime(new Date("2026-08-22T16:00:00.000Z"));
+  assert.deepEqual(
+    due.map(({ id }) => id),
+    [oneTime.task.id],
+  );
+  assert.deepEqual(await store.completeOneTime(oneTime.task.id, oneTime.task.updatedAt), {
+    deleted: true,
+    revision: 3,
+  });
+  assert.deepEqual(await store.completeOneTime(oneTime.task.id, oneTime.task.updatedAt), {
+    deleted: false,
+    revision: 3,
+  });
+  assert.equal((await store.list()).tasks.length, 1);
+});
+
+test("task completion does not delete a definition edited after it was claimed", async (t) => {
+  const { store } = await createStore(t);
+  const created = await store.create(0, definition("Original"), instant(0));
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const editedDefinition = {
+    ...definition("Rescheduled"),
+    nextRunAt: new Date("2026-08-23T16:00:00.000Z"),
+  };
+  const edited = await store.replace(created.task.id, 1, editedDefinition, instant(1));
+  assert.equal(edited.ok, true);
+
+  assert.deepEqual(await store.completeOneTime(created.task.id, created.task.updatedAt), {
+    deleted: false,
+    revision: 2,
+  });
+  assert.equal((await store.list()).tasks[0]?.name, "Rescheduled");
+});
+
 async function createStore(t: test.TestContext) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "ben-tasks-"));
   t.after(async () => {

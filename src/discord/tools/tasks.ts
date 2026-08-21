@@ -211,7 +211,11 @@ function taskParameters(includeId: boolean): Readonly<Record<string, unknown>> {
       type: "string",
       description: "Exact next local run time in 24-hour HH:mm format.",
     },
-    repeat: { type: "string", enum: ["none", "daily", "weekly"] },
+    repeat: {
+      type: "string",
+      enum: ["none"],
+      description: "One-time execution. Recurring tasks are not available yet.",
+    },
   };
   if (includeId) {
     properties.task_id = {
@@ -249,7 +253,8 @@ async function parseTaskDefinition(
   const runDate = requireText(input.run_date, "run_date", 10);
   const runTime = requireText(input.run_time, "run_time", 5);
   const repeat = parseRepeat(input.repeat);
-  if (repeat === undefined) throw new Error("repeat must be none, daily, or weekly");
+  if (repeat !== "none")
+    throw new Error("repeat must be none; recurring tasks are not available yet");
   if (input.channel !== null && typeof input.channel !== "string") {
     throw new Error('channel must be "current", a channel name, or null');
   }

@@ -6,6 +6,7 @@ import type { PresenceState } from "../PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
 import { RecordingTransport } from "../../testing/RecordingTransport.js";
 import { ModelBudgetExceededError } from "../../model/Model.js";
+import type { AutonomousTask } from "../../storage/TaskStore.js";
 
 const quietLogger = {
   debug() {},
@@ -62,6 +63,22 @@ function message(id: string, channelId = "channel-a", username = "Makan"): Human
     username,
     content: id,
     createdAt: Date.now(),
+  };
+}
+
+function autonomousTask(id = "task-one", channelId = "channel-b"): AutonomousTask {
+  return {
+    id,
+    name: 'Check "plans"',
+    description: "See whether plans are finalized.",
+    instructions: "Read recent context and ask a concise follow-up.",
+    destination: { kind: "named", channelId, channelName: "plans" },
+    runDate: "2026-08-21",
+    runTime: "18:00",
+    repeat: "none",
+    nextRunAt: "2026-08-21T22:00:00.000Z",
+    createdAt: "2026-08-20T12:00:00.000Z",
+    updatedAt: "2026-08-20T12:00:00.000Z",
   };
 }
 
@@ -244,6 +261,184 @@ test("idle sleep clears history before a later wake", async (t) => {
     presence.values.map(({ status }) => status),
     ["online", "idle", "online"],
   );
+});
+
+test("starts an autonomous task with exact activity copy and self-authored prompt context", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait()]);
+  const persistence: BotSessionPersistence = {
+    knownPeople: {
+      async listForPrompt() {
+        return { makan: { name: "Makan" } };
+      },
+    },
+    summaries: {
+      async list() {
+        return [{ summary: "Earlier plans discussion." }];
+      },
+      async add() {},
+    },
+    memories: {
+      async list() {
+        return [{ id: 1, memory: "Friday is preferred." }];
+      },
+    },
+    longTermMemory: {
+      async get() {
+        return "Ben enjoys organizing game nights.";
+      },
+    },
+  };
+  const { session, transport } = createSession(
+    orchestrator,
+    undefined,
+    undefined,
+    fastTimings,
+    persistence,
+  );
+  t.after(() => session.stop());
+  session.handleMessage(message("recent", "channel-b"), false);
+
+  session.enqueueTask(autonomousTask(), async () => undefined);
+  await until(() => orchestrator.calls.length === 1);
+
+  assert.deepEqual(transport.messages[0], {
+    channelId: "channel-b",
+    text: '> ⏰ Ben is starting task "Check \\"plans\\""...',
+  });
+  const prompt = orchestrator.calls[0]?.userText ?? "";
+  assert.match(prompt, /Current Discord channel: #plans\./);
+  assert.match(prompt, /Known people:/);
+  assert.match(prompt, /Long-term memory/);
+  assert.match(prompt, /Short-term memories/);
+  assert.match(prompt, /Recent conversations/);
+  assert.match(prompt, /Recent context:[\s\S]*recent/);
+  assert.match(
+    prompt,
+    /Ben was awakened by a scheduled task that Ben previously created for itself\./,
+  );
+  assert.match(prompt, /Task: Check "plans"/);
+  assert.match(prompt, /Description: See whether plans are finalized\./);
+  assert.match(
+    prompt,
+    /Instructions Ben wrote for itself:\nRead recent context and ask a concise follow-up\./,
+  );
+  assert.doesNotMatch(prompt, /Ben was pinged by/);
+  assert.equal(session.getActiveCreator(), undefined);
+});
+
+test("queues a task behind a human conversation and starts it only after sleep", async (t) => {
+  const first = deferred<ConversationOutcome>();
+  const orchestrator = new ScriptedOrchestrator([first.promise, wait()]);
+  const { session, transport } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  session.handleMessage(message("human-ping"), true);
+  await until(() => orchestrator.calls.length === 1);
+  session.enqueueTask(autonomousTask(), async () => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(transport.messages.length, 0);
+
+  first.resolve({ type: "sleep", summary: "Human conversation done." });
+  await until(() => orchestrator.calls.length === 2);
+  assert.equal(transport.messages[0]?.text, '> ⏰ Ben is starting task "Check \\"plans\\""...');
+  assert.match(orchestrator.calls[0]?.userText ?? "", /human-ping/);
+  assert.match(orchestrator.calls[1]?.userText ?? "", /previously created for itself/);
+});
+
+test("task wait accepts same-channel follow-up with a human active creator", async (t) => {
+  let session!: BotSession;
+  const creators: Array<ReturnType<BotSession["getActiveCreator"]>> = [];
+  const calls: string[] = [];
+  const runner = {
+    async run(_instructions: string, _history: readonly ConversationItem[], userText: string) {
+      creators.push(session.getActiveCreator());
+      calls.push(userText);
+      return wait();
+    },
+  };
+  const transport = new RecordingTransport();
+  session = new BotSession(
+    "system instructions",
+    runner,
+    transport,
+    new RecordingPresence(),
+    quietLogger,
+    fastTimings,
+  );
+  t.after(() => session.stop());
+
+  session.enqueueTask(autonomousTask(), async () => undefined);
+  await until(() => calls.length === 1);
+  session.handleMessage(message("answer", "channel-b", "Makan"), false);
+  await until(() => calls.length === 2);
+
+  assert.equal(creators[0], undefined);
+  assert.deepEqual(creators[1], { userId: "makan", username: "Makan" });
+  assert.match(calls[1] ?? "", /answer/);
+});
+
+test("completes a one-time task on model sleep and idle sleep", async (t) => {
+  const modelCompletions: string[] = [];
+  const modelSession = createSession(
+    new ScriptedOrchestrator([{ type: "sleep", summary: "Task done." }]),
+  );
+  t.after(() => modelSession.session.stop());
+  modelSession.session.enqueueTask(autonomousTask("model"), async () => {
+    modelCompletions.push("model");
+  });
+  await until(() => modelCompletions.length === 1);
+
+  const idleCompletions: string[] = [];
+  const idleSession = createSession(new ScriptedOrchestrator([wait()]), undefined, undefined, {
+    ...fastTimings,
+    idleSleepMs: 20,
+  });
+  t.after(() => idleSession.session.stop());
+  idleSession.session.enqueueTask(autonomousTask("idle"), async () => {
+    idleCompletions.push("idle");
+  });
+  await until(() => idleCompletions.length === 1);
+});
+
+test("a failed task start activity message does not starve later wakes", async (t) => {
+  const completions: string[] = [];
+  const transport = new RecordingTransport();
+  transport.sendMessage = async () => {
+    throw new Error("Discord unavailable");
+  };
+  const { session } = createSession(
+    new ScriptedOrchestrator([
+      { type: "sleep", summary: "First attempted." },
+      { type: "sleep", summary: "Second attempted." },
+    ]),
+    transport,
+  );
+  t.after(() => session.stop());
+
+  session.enqueueTask(autonomousTask("first"), async () => {
+    completions.push("first");
+  });
+  session.enqueueTask(autonomousTask("second"), async () => {
+    completions.push("second");
+  });
+
+  await until(() => completions.length === 2);
+  assert.deepEqual(completions, ["first", "second"]);
+});
+
+test("queues an autonomous task while dreaming", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait()]);
+  const { session, transport } = createSession(orchestrator);
+  t.after(() => session.stop());
+
+  assert.equal(session.beginDreaming(), true);
+  session.enqueueTask(autonomousTask(), async () => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(transport.messages.length, 0);
+
+  session.finishDreaming();
+  await until(() => orchestrator.calls.length === 1);
+  assert.equal(transport.messages[0]?.text, '> ⏰ Ben is starting task "Check \\"plans\\""...');
 });
 
 test("reports a reached daily budget and remains awake", async (t) => {

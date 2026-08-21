@@ -46,7 +46,7 @@ test("task tools create current, named, and own-channel tasks after viewing", as
   );
 
   await execute(view, {});
-  const named = await execute(create, taskArguments(1, "Plans check", "#plans", "daily"));
+  const named = await execute(create, taskArguments(1, "Plans check", "#plans"));
   assert.deepEqual(readTask(named).destination, {
     kind: "named",
     channelId: "plans-id",
@@ -54,11 +54,11 @@ test("task tools create current, named, and own-channel tasks after viewing", as
   });
   assert.equal(
     gateway.sent.at(-1)?.content,
-    '> Ben created task "Plans check" to run every day at 12:00 PM in #plans.',
+    '> Ben created task "Plans check" to run Saturday at 12:00 PM in #plans.',
   );
 
   await execute(view, {});
-  const privateTask = await execute(create, taskArguments(2, "Private check", null, "weekly"));
+  const privateTask = await execute(create, taskArguments(2, "Private check", null));
   assert.deepEqual(readTask(privateTask).destination, {
     kind: "own",
     channelId: "own-id",
@@ -66,7 +66,7 @@ test("task tools create current, named, and own-channel tasks after viewing", as
   });
   assert.equal(
     gateway.sent.at(-1)?.content,
-    '> Ben created task "Private check" to run every Saturday at 12:00 PM in his own channel.',
+    '> Ben created task "Private check" to run Saturday at 12:00 PM in his own channel.',
   );
   assert.deepEqual(gateway.sent.at(-1)?.options, { allowUserMentions: false });
 });
@@ -92,7 +92,7 @@ test("task tools fully replace, rename, and permanently delete tasks", async (t)
   const id = readTask(created).id;
   await execute(view, {});
   const edited = await execute(edit, {
-    ...taskArguments(1, "New title", "#plans", "weekly"),
+    ...taskArguments(1, "New title", "#plans"),
     task_id: id,
     description: "Replacement description",
     instructions: "Replacement detailed instructions.",
@@ -147,6 +147,23 @@ test("task tools reject unavailable channel destinations without requiring a cre
   assert.match(JSON.stringify(missing), /was not found uniquely/);
   assert.equal(fixture.gateway.sent.at(-1)?.channelId, "general-id");
   assert.match(fixture.gateway.sent.at(-1)?.content ?? "", /^> ⚠️/);
+});
+
+test("live task tools expose and accept only one-time execution", async (t) => {
+  const fixture = await createFixture(t);
+  const repeatSchema = (
+    fixture.create.definition.parameters as {
+      properties: { repeat: { enum: string[] } };
+    }
+  ).properties.repeat;
+  assert.deepEqual(repeatSchema.enum, ["none"]);
+
+  await execute(fixture.view, {});
+  const recurring = await execute(
+    fixture.create,
+    taskArguments(0, "Recurring", "current", "daily"),
+  );
+  assert.match(JSON.stringify(recurring), /recurring tasks are not available yet/);
 });
 
 async function createFixture(t: test.TestContext) {
