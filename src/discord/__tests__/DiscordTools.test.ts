@@ -21,6 +21,7 @@ import { createScheduledMessageTool } from "../tools/createScheduledMessage.js";
 import { createReactToMessageTool } from "../tools/reactToMessage.js";
 import { createRememberNameTool } from "../tools/rememberName.js";
 import { createSendMessageTool } from "../tools/sendChannelMessage.js";
+import { createThinkTool } from "../tools/think.js";
 import { createUpdateCustomStatusTool } from "../tools/updateCustomStatus.js";
 
 const general: DiscordChannel = { id: "general", name: "general", guildId: "guild" };
@@ -222,6 +223,49 @@ test("message reports partial delivery and does not apply its next action", asyn
     result: { ok: false, error: "Error: send failed", sentCount: 1, messageIds: ["sent-1"] },
   });
   assert.deepEqual(transport.messages, ["sent"]);
+});
+
+test("think expresses one inner thought and always continues", async () => {
+  const transport = new FakeMessageTransport();
+  const tool = createThinkTool({
+    transport,
+    getActiveChannelId: () => "general",
+  });
+
+  assert.deepEqual(await execute(tool, { text: "  wait,   something feels off  " }), {
+    type: "continue",
+    result: { ok: true, messageId: "sent-1" },
+  });
+  assert.deepEqual(transport.messages, ["> 💭 wait, something feels off"]);
+  assert.deepEqual(tool.definition.parameters, {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      text: {
+        type: "string",
+        minLength: 1,
+        maxLength: 1995,
+        description: "The thought to express in your inner voice.",
+      },
+    },
+    required: ["text"],
+  });
+});
+
+test("think reports validation, active-channel, and delivery failures as continuing results", async () => {
+  const transport = new FakeMessageTransport(0);
+  const create = (channelId: string | undefined) =>
+    createThinkTool({
+      transport,
+      getActiveChannelId: () => channelId,
+    });
+
+  assert.match(JSON.stringify(await execute(create("general"), { text: " " })), /1-1995/);
+  assert.match(JSON.stringify(await execute(create(undefined), { text: "hmm" })), /no active/);
+  assert.deepEqual(await execute(create("general"), { text: "hmm" }), {
+    type: "continue",
+    result: { ok: false, error: "Error: send failed" },
+  });
 });
 
 test("message replies only with the first text and validates the reference", async () => {

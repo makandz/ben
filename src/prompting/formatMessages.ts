@@ -113,7 +113,7 @@ export function buildUserPrompt(options: UserPromptOptions): string {
 function formatSpeaker(username: string, knownPeople: KnownPeople): string {
   const person = knownPeople[username.toLowerCase()];
 
-  return person === undefined ? username : `${username} (${person.name})`;
+  return `${username} (${person?.name ?? "unknown"})`;
 }
 
 /** Formats the stable prompt section describing known people. */

@@ -68,7 +68,7 @@ test("preserves one addressable transcript line per non-empty message", () => {
 
   assert.equal(
     result,
-    "<message_id:1> makan (Makan): hi\n<message_id:2> makan (Makan): there friend\n<message_id:4> sam: hello",
+    "<message_id:1> makan (Makan): hi\n<message_id:2> makan (Makan): there friend\n<message_id:4> sam (unknown): hello",
   );
 });
 
@@ -96,7 +96,7 @@ test("builds all optional prompt context in stable order", () => {
       "Short-term memories:\n- [3] Makan likes concise answers.",
       "Recent conversations:\n- They discussed lunch.",
       "Ben was pinged by makan (Makan).",
-      "Recent context:\n<message_id:1> sam: earlier",
+      "Recent context:\n<message_id:1> sam (unknown): earlier",
       "New messages:\n<message_id:2> makan (Makan): hello",
     ].join("\n\n"),
   );

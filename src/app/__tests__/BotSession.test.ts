@@ -127,7 +127,7 @@ test("starts sleeping, keeps bounded channel context, and batches an awake chann
   assert.match(prompt, /old-6/);
   assert.match(
     prompt,
-    /New messages:\n<message_id:ping> Makan: ping\n<message_id:follow-up> Makan: follow-up/,
+    /New messages:\n<message_id:ping> Makan \(unknown\): ping\n<message_id:follow-up> Makan \(unknown\): follow-up/,
   );
   assert.deepEqual(presence.values[0], { status: "online" });
   assert.deepEqual(transport.messages, [{ channelId: "channel-a", text: "hey" }]);
@@ -371,7 +371,7 @@ test("includes successful recorded bot output in that channel's next wake contex
 
   assert.match(
     orchestrator.calls[0]?.userText ?? "",
-    /Recent context:\n<message_id:discord-bot-message> Ben: cross-channel hello/,
+    /Recent context:\n<message_id:discord-bot-message> Ben \(unknown\): cross-channel hello/,
   );
   assert.equal(session.isMessageInActiveConversation("discord-bot-message"), true);
 });
