@@ -48,7 +48,7 @@ test("makes one configured request, maps its turn, and records usage", async (co
     tool_choice: "required",
     parallel_tool_calls: false,
     max_output_tokens: 512,
-    reasoning: { effort: "medium" },
+    reasoning: { effort: "high" },
     include: ["reasoning.encrypted_content"],
     store: false,
   });
