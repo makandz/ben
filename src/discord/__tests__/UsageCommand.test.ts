@@ -19,7 +19,7 @@ const summary = {
 test("formats limited and unlimited daily usage", () => {
   assert.equal(
     formatUsageSummary(summary),
-    "1,234/200/50 (input/cached/output) - $0.2500 (25.0%) - gpt-5.4-mini",
+    "1,034/200/50 (uncached/cached/output) - $0.2500 (25.0%) - gpt-5.4-mini",
   );
   assert.match(formatUsageSummary({ ...summary, budgetUsd: 0 }), /\(n\/a\)/);
 });
