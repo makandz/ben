@@ -80,7 +80,7 @@ export class OpenAIModel implements Model {
         ? {}
         : { tools, tool_choice: "required" as const, parallel_tool_calls: false }),
       max_output_tokens: this.maxOutputTokens,
-      reasoning: { effort: "medium" },
+      reasoning: { effort: "high" },
       include: ["reasoning.encrypted_content"],
       store: false,
     });
