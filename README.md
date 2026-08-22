@@ -12,10 +12,12 @@ Ping him and he joins the conversation, catches up on what people were saying, w
 - consolidates recent conversations and short-term memories into long-term memory;
 - remembers people's preferred names;
 - sets his own custom status;
-- schedules one-time, daily, or weekly messages; and
+- creates one-time, daily, or weekly tasks for himself; and
 - reports OpenAI usage through `/usage`.
 
-Ben stays active in one channel at a time. Other pings are queued until he is free, and a small amount of conversation context is saved when he goes back to sleep.
+Ben stays active in one channel at a time. Other pings and due tasks are queued until he is free, and a small amount of conversation context is saved when he goes back to sleep. A task wakes Ben with detailed instructions he previously wrote for himself, then follows the same conversation and timeout flow as a normal ping. This also lets Ben create reminders by scheduling a task that sends or mentions someone when it runs.
+
+Tasks can target the current channel, another channel by name, or—when no channel is supplied—Ben's own configured channel. Ben sees readable channel names while stable Discord channel IDs are handled internally.
 
 ## Setup
 
@@ -41,14 +43,14 @@ pnpm dev
 
 ## Configuration
 
-| Variable                  | Default | Purpose                                                   |
-| ------------------------- | ------- | --------------------------------------------------------- |
-| `DISCORD_LOG_CHANNEL_ID`  | unset   | Sends lifecycle and scheduling logs to a Discord channel. |
-| `DISCORD_ADMIN_USER_ID`   | unset   | Allows that Discord user to run `/consolidate`.           |
-| `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it. |
-| `LOG_LEVEL`               | `info`  | Sets the console log level.                               |
+| Variable                  | Default | Purpose                                                               |
+| ------------------------- | ------- | --------------------------------------------------------------------- |
+| `DISCORD_LOG_CHANNEL_ID`  | unset   | Sets Ben's own task channel and receives operational and memory logs. |
+| `DISCORD_ADMIN_USER_ID`   | unset   | Allows that Discord user to run `/consolidate`.                       |
+| `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it.             |
+| `LOG_LEVEL`               | `info`  | Sets the console log level.                                           |
 
-Scheduled messages use the `America/Toronto` timezone. Runtime state is stored under the gitignored `logs/` directory. Ben checks for memory consolidation every 24 hours, skips the model call when there is no short-term context, and stores the resulting long-term memory as plain text.
+Tasks use the `America/Toronto` timezone. Runtime state is stored under the gitignored `logs/` directory. Ben checks for memory consolidation every 24 hours, skips the model call when there is no short-term context, and stores the resulting long-term memory as plain text.
 
 ## Development
 

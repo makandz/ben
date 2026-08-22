@@ -129,9 +129,19 @@ function formatTaskWake(task: AutonomousTask): string {
     `Task: ${task.name}`,
     `Description: ${task.description}`,
     `Instructions Ben wrote for itself:\n${task.instructions}`,
-    `Schedule: one time on ${task.runDate} at ${task.runTime}`,
+    `Schedule: ${formatTaskSchedule(task)}`,
     `Scheduled occurrence: ${task.nextRunAt}`,
   ].join("\n");
+}
+
+/** Formats a task recurrence in concise model-readable language. */
+function formatTaskSchedule(task: AutonomousTask): string {
+  if (task.repeat === "none") return `one time on ${task.runDate} at ${task.runTime}`;
+  if (task.repeat === "daily") return `daily at ${task.runTime}`;
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long" }).format(
+    new Date(`${task.runDate}T00:00:00.000Z`),
+  );
+  return `weekly on ${weekday}s at ${task.runTime}`;
 }
 
 /** Builds one prompt section's speaker label. */

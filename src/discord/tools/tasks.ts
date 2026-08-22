@@ -1,6 +1,9 @@
 import type { Logger } from "../../logger.js";
-import { localScheduleToDate, type ScheduleRepeat } from "../../scheduling/scheduleTime.js";
-import { SCHEDULE_TIME_ZONE } from "../../scheduling/ScheduledMessageScheduler.js";
+import {
+  localScheduleToDate,
+  type ScheduleRepeat,
+  SCHEDULE_TIME_ZONE,
+} from "../../scheduling/scheduleTime.js";
 import type { AutonomousTask, TaskDefinitionInput, TaskStore } from "../../storage/TaskStore.js";
 import type { Tool, ToolResult } from "../../tools/Tool.js";
 import type { ChannelMentionDirectory } from "../DiscordDirectory.js";

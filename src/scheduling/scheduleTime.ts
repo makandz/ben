@@ -1,5 +1,8 @@
 export type ScheduleRepeat = "none" | "daily" | "weekly";
 
+export const SCHEDULE_CHECK_INTERVAL_MS = 30_000;
+export const SCHEDULE_TIME_ZONE = "America/Toronto";
+
 export type ScheduledLocalTime = {
   runDate: string;
   runTime: string;

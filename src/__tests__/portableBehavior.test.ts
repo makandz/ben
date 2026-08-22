@@ -114,6 +114,40 @@ test("formats a reset Discord custom status explicitly", () => {
   assert.match(result, /^Current Discord custom status: none\./);
 });
 
+test("formats a recurring task wake as Ben's own detailed scheduled intention", () => {
+  const result = buildUserPrompt({
+    recentContext: [],
+    messages: [],
+    currentChannelName: "plans",
+    task: {
+      id: "task_weekly",
+      version: 1,
+      name: "Check plans",
+      description: "See whether game night is confirmed.",
+      instructions: "Read recent context, then ask Makan whether Friday still works.",
+      destination: { kind: "named", channelId: "plans-id", channelName: "plans" },
+      runDate: "2026-08-21",
+      runTime: "18:00",
+      repeat: "weekly",
+      nextRunAt: "2026-08-21T22:00:00.000Z",
+      createdAt: "2026-08-20T12:00:00.000Z",
+      updatedAt: "2026-08-20T12:00:00.000Z",
+    },
+  });
+
+  assert.match(result, /Current Discord channel: #plans\./);
+  assert.match(
+    result,
+    /Ben was awakened by a scheduled task that Ben previously created for itself\./,
+  );
+  assert.match(
+    result,
+    /Instructions Ben wrote for itself:\nRead recent context, then ask Makan whether Friday still works\./,
+  );
+  assert.match(result, /Schedule: weekly on Fridays at 18:00/);
+  assert.doesNotMatch(result, /New messages:/);
+});
+
 test("loads the copied messaging prompt and falls back for a missing file", async () => {
   const loaded = await loadMessagingPrompt();
   const fallback = await loadMessagingPrompt(

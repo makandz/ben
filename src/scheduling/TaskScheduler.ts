@@ -1,7 +1,10 @@
 import type { Logger } from "../logger.js";
 import type { AutonomousTask, TaskStore } from "../storage/TaskStore.js";
-import { computeNextRunAt } from "./scheduleTime.js";
-import { SCHEDULE_CHECK_INTERVAL_MS, SCHEDULE_TIME_ZONE } from "./ScheduledMessageScheduler.js";
+import {
+  computeNextRunAt,
+  SCHEDULE_CHECK_INTERVAL_MS,
+  SCHEDULE_TIME_ZONE,
+} from "./scheduleTime.js";
 
 export type TaskCompletion = () => Promise<void>;
 

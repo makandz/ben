@@ -6,7 +6,6 @@ import { DiscordAdapter } from "../discord/DiscordAdapter.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "../discord/DiscordDirectory.js";
 import type { DiscordGateway } from "../discord/DiscordGateway.js";
 import { DiscordPresence } from "../discord/DiscordPresence.js";
-import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDelivery.js";
 import { DiscordTransport } from "../discord/DiscordTransport.js";
 import {
   DREAM_COMPLETE_MESSAGE,
@@ -32,18 +31,13 @@ import type { Model } from "../model/Model.js";
 import { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
 import { MemoryConsolidator } from "../memory/MemoryConsolidator.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
-import { formatBotTime } from "../scheduling/scheduleTime.js";
-import {
-  ScheduledMessageScheduler,
-  SCHEDULE_TIME_ZONE,
-} from "../scheduling/ScheduledMessageScheduler.js";
+import { formatBotTime, SCHEDULE_TIME_ZONE } from "../scheduling/scheduleTime.js";
 import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js";
 import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { MemoryStore } from "../storage/MemoryStore.js";
 import { LongTermMemoryStore } from "../storage/LongTermMemoryStore.js";
 import { MemoryConsolidationStateStore } from "../storage/MemoryConsolidationStateStore.js";
-import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
 import { TaskStore } from "../storage/TaskStore.js";
 import { TaskScheduler } from "../scheduling/TaskScheduler.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
@@ -53,7 +47,6 @@ import { createRememberTool } from "../tools/remember.js";
 const paths = {
   summaries: "logs/conversation-summaries.json",
   people: "logs/known-people.json",
-  schedules: "logs/scheduled-messages.json",
   tasks: "logs/tasks.json",
   customStatus: "logs/custom-status.json",
   memories: "logs/memories.json",
@@ -110,7 +103,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const presence = new DiscordPresence(gateway);
   const summaries = new ConversationSummaryStore(paths.summaries, logger);
   const people = new KnownPeopleStore(paths.people, logger);
-  const schedules = new ScheduledMessageStore(paths.schedules, logger);
   const tasks = new TaskStore(paths.tasks, logger);
   const customStatus = new CustomStatusStore(paths.customStatus, logger);
   const memories = new MemoryStore(paths.memories, logger);
@@ -119,13 +111,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     paths.memoryConsolidationState,
     logger,
   );
-  const scheduledScheduler = new ScheduledMessageScheduler(
-    schedules,
-    createScheduledMessageDelivery(gateway),
-    (text) => transport.logStatus(text),
-    logger,
-  );
-
   const tools = new ToolRegistry([waitTool, sleepTool]);
   tools.register(
     createRememberTool({
@@ -250,7 +235,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         } catch (error) {
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
-        void scheduledScheduler.start();
         void taskScheduler.start();
         void memoryConsolidationScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
@@ -291,7 +275,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     },
     async stop() {
       session.stop();
-      scheduledScheduler.stop();
       taskScheduler.stop();
       memoryConsolidationScheduler.stop();
       await adapter.stop();
