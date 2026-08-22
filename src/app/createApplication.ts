@@ -6,7 +6,6 @@ import { DiscordAdapter } from "../discord/DiscordAdapter.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "../discord/DiscordDirectory.js";
 import type { DiscordGateway } from "../discord/DiscordGateway.js";
 import { DiscordPresence } from "../discord/DiscordPresence.js";
-import { createScheduledMessageDelivery } from "../discord/ScheduledMessageDelivery.js";
 import { DiscordTransport } from "../discord/DiscordTransport.js";
 import {
   DREAM_COMPLETE_MESSAGE,
@@ -16,7 +15,12 @@ import {
   registerConsolidateCommand,
 } from "../discord/consolidateCommand.js";
 import { handleUsageCommand, registerUsageCommand } from "../discord/usageCommand.js";
-import { createScheduledMessageTool } from "../discord/tools/createScheduledMessage.js";
+import {
+  createCreateTaskTool,
+  createDeleteTaskTool,
+  createEditTaskTool,
+  createViewTasksTool,
+} from "../discord/tools/tasks.js";
 import { createRememberNameTool } from "../discord/tools/rememberName.js";
 import { createReactToMessageTool } from "../discord/tools/reactToMessage.js";
 import { createSendMessageTool } from "../discord/tools/sendChannelMessage.js";
@@ -27,18 +31,15 @@ import type { Model } from "../model/Model.js";
 import { MemoryConsolidationScheduler } from "../memory/MemoryConsolidationScheduler.js";
 import { MemoryConsolidator } from "../memory/MemoryConsolidator.js";
 import { OpenAIUsageStore } from "../model/openai/OpenAIUsageStore.js";
-import { formatBotTime } from "../scheduling/scheduleTime.js";
-import {
-  ScheduledMessageScheduler,
-  SCHEDULE_TIME_ZONE,
-} from "../scheduling/ScheduledMessageScheduler.js";
+import { formatBotTime, SCHEDULE_TIME_ZONE } from "../scheduling/scheduleTime.js";
 import { ConversationSummaryStore } from "../storage/ConversationSummaryStore.js";
 import { CustomStatusStore } from "../storage/CustomStatusStore.js";
 import { KnownPeopleStore } from "../storage/KnownPeopleStore.js";
 import { MemoryStore } from "../storage/MemoryStore.js";
 import { LongTermMemoryStore } from "../storage/LongTermMemoryStore.js";
 import { MemoryConsolidationStateStore } from "../storage/MemoryConsolidationStateStore.js";
-import { ScheduledMessageStore } from "../storage/ScheduledMessageStore.js";
+import { TaskStore } from "../storage/TaskStore.js";
+import { TaskScheduler } from "../scheduling/TaskScheduler.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
 import { createRememberTool } from "../tools/remember.js";
@@ -46,7 +47,7 @@ import { createRememberTool } from "../tools/remember.js";
 const paths = {
   summaries: "logs/conversation-summaries.json",
   people: "logs/known-people.json",
-  schedules: "logs/scheduled-messages.json",
+  tasks: "logs/tasks.json",
   customStatus: "logs/custom-status.json",
   memories: "logs/memories.json",
   longTermMemory: "logs/long-term-memory.txt",
@@ -101,7 +102,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   const presence = new DiscordPresence(gateway);
   const summaries = new ConversationSummaryStore(paths.summaries, logger);
   const people = new KnownPeopleStore(paths.people, logger);
-  const schedules = new ScheduledMessageStore(paths.schedules, logger);
+  const tasks = new TaskStore(paths.tasks, logger);
   const customStatus = new CustomStatusStore(paths.customStatus, logger);
   const memories = new MemoryStore(paths.memories, logger);
   const longTermMemory = new LongTermMemoryStore(paths.longTermMemory);
@@ -109,13 +110,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     paths.memoryConsolidationState,
     logger,
   );
-  const scheduledScheduler = new ScheduledMessageScheduler(
-    schedules,
-    createScheduledMessageDelivery(gateway),
-    (text) => transport.logStatus(text),
-    logger,
-  );
-
   const tools = new ToolRegistry([waitTool, sleepTool]);
   tools.register(
     createRememberTool({
@@ -169,18 +163,18 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       logger,
     }),
   );
-  tools.register(
-    createScheduledMessageTool({
-      gateway,
-      users,
-      channels,
-      store: schedules,
-      status: transport,
-      getActiveChannelId: () => session.getActiveChannelId(),
-      getCreator: () => session.getActiveCreator(),
-      logger,
-    }),
-  );
+  const taskToolDependencies = {
+    gateway,
+    channels,
+    store: tasks,
+    getActiveChannelId: () => session.getActiveChannelId(),
+    getOwnChannelId: () => env.discordLogChannelId,
+    logger,
+  };
+  tools.register(createViewTasksTool(taskToolDependencies));
+  tools.register(createCreateTaskTool(taskToolDependencies));
+  tools.register(createEditTaskTool(taskToolDependencies));
+  tools.register(createDeleteTaskTool(taskToolDependencies));
   session = new BotSession(
     dependencies.instructions,
     new ConversationOrchestrator(dependencies.conversationModel, tools),
@@ -192,6 +186,11 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
+  );
+  const taskScheduler = new TaskScheduler(
+    tasks,
+    (task, complete) => session.enqueueTask(task, complete),
+    logger,
   );
   const memoryConsolidator = new MemoryConsolidator(
     dependencies.consolidationModel,
@@ -235,7 +234,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         } catch (error) {
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
-        void scheduledScheduler.start();
+        void taskScheduler.start();
         void memoryConsolidationScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
@@ -272,7 +271,7 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     },
     async stop() {
       session.stop();
-      scheduledScheduler.stop();
+      taskScheduler.stop();
       memoryConsolidationScheduler.stop();
       await adapter.stop();
     },

@@ -63,6 +63,17 @@ test("rejects a nonexistent daylight-saving wall time", () => {
   });
 });
 
+test("daily recurrence skips a nonexistent daylight-saving occurrence", () => {
+  assert.equal(
+    computeNextRunAt(
+      new Date("2026-03-07T07:30:00.000Z"),
+      "daily",
+      "America/Toronto",
+    )?.toISOString(),
+    "2026-03-09T06:30:00.000Z",
+  );
+});
+
 test("formats bot-local prompt time", () => {
   const formatted = formatBotTime(new Date("2026-08-10T16:30:00.000Z"), "America/Toronto");
 

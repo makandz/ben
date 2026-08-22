@@ -1,6 +1,7 @@
 export type HumanMessage = {
   id: string;
   channelId: string;
+  channelName?: string;
   userId: string;
   username: string;
   content: string;

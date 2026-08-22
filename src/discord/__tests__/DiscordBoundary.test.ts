@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { HumanMessage } from "../../app/types.js";
+import { resolveChannelDestination } from "../ChannelDestinationResolver.js";
 import { DiscordAdapter } from "../DiscordAdapter.js";
 import {
   ChannelMentionDirectory,
@@ -69,6 +70,7 @@ test("adapter normalizes human messages, detects pings, and ignores bots", () =>
       message: {
         id: "message-1",
         channelId: "channel-1",
+        channelName: "general",
         userId: "user-1",
         username: "Makan",
         content: "hello @ben, see #plans",
@@ -219,6 +221,75 @@ test("directories use exact matches and require uniqueness", () => {
   );
 });
 
+test("channel destinations preserve the exact current channel", async () => {
+  const gateway = new FakeDiscordGateway();
+  gateway.channels = [
+    general,
+    { id: "same-name", name: "general", guildId: "guild-1", sendable: true },
+  ];
+
+  const resolved = await resolveChannelDestination("current", {
+    gateway,
+    channels: new ChannelMentionDirectory(),
+    currentChannelId: "channel-1",
+    ownChannelId: "log-channel",
+  });
+
+  assert.equal(resolved.kind, "current");
+  assert.equal(resolved.channel.id, "channel-1");
+  assert.equal(gateway.guildChannelFetches, 0);
+});
+
+test("channel destinations resolve readable names through the active server", async () => {
+  const gateway = new FakeDiscordGateway();
+  gateway.channels = [
+    general,
+    { id: "channel-2", name: "plans", guildId: "guild-1", sendable: true },
+  ];
+  const directory = new ChannelMentionDirectory();
+
+  const resolved = await resolveChannelDestination("#PLANS", {
+    gateway,
+    channels: directory,
+    currentChannelId: "channel-1",
+    ownChannelId: "log-channel",
+  });
+
+  assert.equal(resolved.kind, "named");
+  assert.equal(resolved.channel.id, "channel-2");
+  assert.equal(directory.convertNamesToMentions("go to #plans"), "go to <#channel-2>");
+});
+
+test("null channel destinations resolve Ben's configured own channel", async () => {
+  const gateway = new FakeDiscordGateway();
+  gateway.channels = [
+    general,
+    { id: "log-channel", name: "ben", guildId: "guild-1", sendable: true },
+  ];
+
+  const resolved = await resolveChannelDestination(null, {
+    gateway,
+    channels: new ChannelMentionDirectory(),
+    currentChannelId: "channel-1",
+    ownChannelId: "log-channel",
+  });
+
+  assert.equal(resolved.kind, "own");
+  assert.equal(resolved.channel.id, "log-channel");
+});
+
+test("own channel resolution fails when no log channel is configured", async () => {
+  await assert.rejects(
+    resolveChannelDestination(null, {
+      gateway: new FakeDiscordGateway(),
+      channels: new ChannelMentionDirectory(),
+      currentChannelId: "channel-1",
+      ownChannelId: undefined,
+    }),
+    /Ben's own channel is unavailable/,
+  );
+});
+
 test("presence is a separate application capability", () => {
   const gateway = new FakeDiscordGateway();
   const presence = new DiscordPresence(gateway);
@@ -240,6 +311,7 @@ class FakeDiscordGateway implements DiscordGateway {
   customStatuses: Array<string | undefined> = [];
   memberSearches: Array<{ guildId: string; query: string }> = [];
   reactions: Array<{ channelId: string; messageId: string; emoji: string }> = [];
+  guildChannelFetches = 0;
 
   setHandlers(handlers: DiscordGatewayHandlers): void {
     this.handlers = handlers;
@@ -261,6 +333,7 @@ class FakeDiscordGateway implements DiscordGateway {
     return this.members;
   }
   async fetchGuildChannels(): Promise<readonly DiscordChannel[]> {
+    this.guildChannelFetches += 1;
     return this.channels;
   }
   async sendMessage(channelId: string, content: string, options: DiscordSendOptions) {
