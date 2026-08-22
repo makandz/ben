@@ -75,6 +75,7 @@ test("task store ignores malformed entries and rejects malformed JSON", async (t
   const filePath = path.join(directory, "tasks.json");
   const valid = {
     id: "task_valid",
+    version: 1,
     ...definition("Valid"),
     nextRunAt: "2026-08-22T16:00:00.000Z",
     createdAt: "2026-08-21T12:00:00.000Z",
@@ -94,7 +95,7 @@ test("task store ignores malformed entries and rejects malformed JSON", async (t
   await assert.rejects(() => store.list(), /must contain valid JSON/);
 });
 
-test("task store lists due one-time tasks and completes them idempotently", async (t) => {
+test("task store lists all due tasks and completes occurrences idempotently", async (t) => {
   const { store } = await createStore(t);
   const oneTime = await store.create(0, definition("One time"), instant(0));
   const recurring = await store.create(1, definition("Recurring", "daily"), instant(1));
@@ -102,20 +103,55 @@ test("task store lists due one-time tasks and completes them idempotently", asyn
   assert.equal(recurring.ok, true);
   if (!oneTime.ok) return;
 
-  const due = await store.listDueOneTime(new Date("2026-08-22T16:00:00.000Z"));
+  const due = await store.listDue(new Date("2026-08-22T16:00:00.000Z"));
   assert.deepEqual(
     due.map(({ id }) => id),
-    [oneTime.task.id],
+    [oneTime.task.id, recurring.ok ? recurring.task.id : ""],
   );
-  assert.deepEqual(await store.completeOneTime(oneTime.task.id, oneTime.task.updatedAt), {
-    deleted: true,
-    revision: 3,
-  });
-  assert.deepEqual(await store.completeOneTime(oneTime.task.id, oneTime.task.updatedAt), {
-    deleted: false,
-    revision: 3,
-  });
+  assert.deepEqual(
+    await store.completeOccurrence(oneTime.task.id, oneTime.task.version, "none", undefined),
+    {
+      outcome: "deleted",
+      revision: 3,
+    },
+  );
+  assert.deepEqual(
+    await store.completeOccurrence(oneTime.task.id, oneTime.task.version, "none", undefined),
+    {
+      outcome: "unchanged",
+      revision: 3,
+    },
+  );
   assert.equal((await store.list()).tasks.length, 1);
+});
+
+test("task store advances recurring completion and invalidates viewed revisions", async (t) => {
+  const { store } = await createStore(t);
+  const created = await store.create(0, definition("Daily", "daily"), instant(0));
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+
+  assert.deepEqual(
+    await store.completeOccurrence(
+      created.task.id,
+      created.task.version,
+      "daily",
+      new Date("2026-08-23T16:00:00.000Z"),
+      instant(1),
+    ),
+    {
+      outcome: "advanced",
+      revision: 2,
+    },
+  );
+  const task = (await store.list()).tasks[0];
+  assert.equal(task?.nextRunAt, "2026-08-23T16:00:00.000Z");
+  assert.equal(task?.version, 2);
+  assert.deepEqual(await store.create(1, definition("Stale")), {
+    ok: false,
+    error: "tasks changed since the last view; run view_tasks again",
+    revision: 2,
+  });
 });
 
 test("task completion does not delete a definition edited after it was claimed", async (t) => {
@@ -130,11 +166,71 @@ test("task completion does not delete a definition edited after it was claimed",
   const edited = await store.replace(created.task.id, 1, editedDefinition, instant(1));
   assert.equal(edited.ok, true);
 
-  assert.deepEqual(await store.completeOneTime(created.task.id, created.task.updatedAt), {
-    deleted: false,
-    revision: 2,
-  });
+  assert.deepEqual(
+    await store.completeOccurrence(created.task.id, created.task.version, "none", undefined),
+    {
+      outcome: "unchanged",
+      revision: 2,
+    },
+  );
   assert.equal((await store.list()).tasks[0]?.name, "Rescheduled");
+});
+
+test("task completion preserves deleted and recurrence-type-changed definitions", async (t) => {
+  const { store } = await createStore(t);
+  const deleted = await store.create(0, definition("Deleted", "daily"), instant(0));
+  assert.equal(deleted.ok, true);
+  if (!deleted.ok) return;
+  assert.equal((await store.delete(deleted.task.id)).ok, true);
+  assert.deepEqual(
+    await store.completeOccurrence(
+      deleted.task.id,
+      deleted.task.version,
+      "daily",
+      new Date("2026-08-23T16:00:00.000Z"),
+    ),
+    { outcome: "unchanged", revision: 2 },
+  );
+
+  const changed = await store.create(2, definition("Changed", "none"), instant(1));
+  assert.equal(changed.ok, true);
+  if (!changed.ok) return;
+  assert.equal(
+    (await store.replace(changed.task.id, 3, definition("Changed", "weekly"), instant(2))).ok,
+    true,
+  );
+  assert.deepEqual(
+    await store.completeOccurrence(changed.task.id, changed.task.version, "none", undefined),
+    {
+      outcome: "unchanged",
+      revision: 4,
+    },
+  );
+  assert.equal((await store.list()).tasks[0]?.repeat, "weekly");
+});
+
+test("pre-version recurring entries load and can advance without migration", async (t) => {
+  const { filePath, store } = await createStore(t);
+  const legacy = {
+    id: "task_existing",
+    ...definition("Existing", "weekly"),
+    nextRunAt: "2026-08-22T16:00:00.000Z",
+    createdAt: instant(0).toISOString(),
+    updatedAt: instant(0).toISOString(),
+  };
+  await writeFile(filePath, JSON.stringify({ version: 1, revision: 4, tasks: [legacy] }));
+  const loaded = (await store.list()).tasks[0];
+  assert.equal(loaded?.version, 0);
+  assert.deepEqual(
+    await store.advanceRecurring(
+      "task_existing",
+      0,
+      new Date("2026-08-29T16:00:00.000Z"),
+      instant(1),
+    ),
+    { advanced: true, revision: 5 },
+  );
+  assert.equal((await store.list()).tasks[0]?.version, 1);
 });
 
 async function createStore(t: test.TestContext) {

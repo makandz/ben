@@ -213,8 +213,9 @@ function taskParameters(includeId: boolean): Readonly<Record<string, unknown>> {
     },
     repeat: {
       type: "string",
-      enum: ["none"],
-      description: "One-time execution. Recurring tasks are not available yet.",
+      enum: ["none", "daily", "weekly"],
+      description:
+        "How the task repeats. Use none to run once, daily to run every day at the supplied local time, or weekly to run on the weekday represented by the supplied local date.",
     },
   };
   if (includeId) {
@@ -253,8 +254,7 @@ async function parseTaskDefinition(
   const runDate = requireText(input.run_date, "run_date", 10);
   const runTime = requireText(input.run_time, "run_time", 5);
   const repeat = parseRepeat(input.repeat);
-  if (repeat !== "none")
-    throw new Error("repeat must be none; recurring tasks are not available yet");
+  if (repeat === undefined) throw new Error("repeat must be none, daily, or weekly");
   if (input.channel !== null && typeof input.channel !== "string") {
     throw new Error('channel must be "current", a channel name, or null');
   }

@@ -124,7 +124,10 @@ export function localScheduleToDate(input: ScheduledLocalTime): Date {
  * @param lastRunAt - Instant of the previous scheduled occurrence.
  * @param repeat - Recurrence rule to apply.
  * @param timeZone - IANA timezone used by the schedule.
- * @returns The next occurrence, or undefined for a one-time schedule.
+ * Nonexistent local occurrences at a daylight-saving transition are skipped while retaining the
+ * intended wall-clock time on the next valid recurrence.
+ *
+ * @returns The next valid occurrence, or undefined for a one-time schedule.
  * @throws When the timezone is invalid or the next local occurrence does not exist.
  */
 export function computeNextRunAt(
@@ -137,16 +140,20 @@ export function computeNextRunAt(
   }
 
   const parts = getTimeZoneParts(lastRunAt, timeZone);
-  const nextLocalDate =
-    repeat === "daily"
-      ? addDays(parts.year, parts.month, parts.day, 1)
-      : addDays(parts.year, parts.month, parts.day, 7);
-
-  return localScheduleToDate({
-    runDate: formatDate(nextLocalDate.year, nextLocalDate.month, nextLocalDate.day),
-    runTime: formatTime(parts.hour, parts.minute),
-    timeZone,
-  });
+  const days = repeat === "daily" ? 1 : 7;
+  let nextLocalDate = addDays(parts.year, parts.month, parts.day, days);
+  for (;;) {
+    try {
+      return localScheduleToDate({
+        runDate: formatDate(nextLocalDate.year, nextLocalDate.month, nextLocalDate.day),
+        runTime: formatTime(parts.hour, parts.minute),
+        timeZone,
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("do not exist")) throw error;
+      nextLocalDate = addDays(nextLocalDate.year, nextLocalDate.month, nextLocalDate.day, days);
+    }
+  }
 }
 
 /**

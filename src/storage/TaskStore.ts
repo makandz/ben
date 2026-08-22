@@ -12,6 +12,7 @@ export type TaskDestination = {
 
 export type AutonomousTask = {
   id: string;
+  version: number;
   name: string;
   description: string;
   instructions: string;
@@ -45,7 +46,7 @@ export type TaskMutationResult =
   | { ok: false; error: string; revision: number };
 
 export type TaskCompletionResult = {
-  deleted: boolean;
+  outcome: "deleted" | "advanced" | "unchanged";
   revision: number;
 };
 
@@ -101,6 +102,7 @@ export class TaskStore {
       const timestamp = now.toISOString();
       const task: AutonomousTask = {
         id: `task_${randomUUID().slice(0, 8)}`,
+        version: 1,
         ...input,
         nextRunAt: input.nextRunAt.toISOString(),
         createdAt: timestamp,
@@ -147,6 +149,7 @@ export class TaskStore {
       if (existing === undefined) return failure("task does not exist", data.revision);
       const task: AutonomousTask = {
         id: existing.id,
+        version: existing.version + 1,
         ...input,
         nextRunAt: input.nextRunAt.toISOString(),
         createdAt: existing.createdAt,
@@ -179,17 +182,15 @@ export class TaskStore {
   }
 
   /**
-   * Lists one-time tasks whose next run is due.
+   * Lists tasks whose next run is due.
    *
    * @param now - Inclusive upper bound for due task timestamps.
-   * @returns Due one-time tasks ordered by scheduled time and creation time.
+   * @returns Due tasks ordered by scheduled time and creation time.
    */
-  async listDueOneTime(now: Date): Promise<AutonomousTask[]> {
+  async listDue(now: Date): Promise<AutonomousTask[]> {
     const data = await this.read();
     return data.tasks
-      .filter(
-        (task) => task.repeat === "none" && new Date(task.nextRunAt).getTime() <= now.getTime(),
-      )
+      .filter((task) => new Date(task.nextRunAt).getTime() <= now.getTime())
       .sort(
         (left, right) =>
           left.nextRunAt.localeCompare(right.nextRunAt) ||
@@ -198,27 +199,77 @@ export class TaskStore {
   }
 
   /**
-   * Permanently removes a completed one-time task when it still exists.
+   * Completes one claimed occurrence without overwriting a newer task definition.
    *
-   * Missing tasks are treated as already completed so manual deletion races are harmless.
+   * One-time tasks are removed. Recurring tasks move to the supplied future occurrence. Missing,
+   * edited, or type-changed tasks are left untouched so deletion and edit races are harmless.
    *
    * @param id - Stable identifier of the completed task.
-   * @param expectedUpdatedAt - Version timestamp captured when the occurrence was claimed.
-   * @returns Whether this call deleted the task and the resulting store revision.
+   * @param expectedVersion - Task version captured when the occurrence was claimed.
+   * @param expectedRepeat - Recurrence captured when the occurrence was claimed.
+   * @param nextRunAt - First future recurrence, required for recurring tasks.
+   * @param now - Completion instant used for the updated timestamp.
+   * @returns The applied completion outcome and resulting store revision.
+   * @throws When a recurring completion omits its next occurrence.
    */
-  async completeOneTime(id: string, expectedUpdatedAt: string): Promise<TaskCompletionResult> {
+  async completeOccurrence(
+    id: string,
+    expectedVersion: number,
+    expectedRepeat: ScheduleRepeat,
+    nextRunAt: Date | undefined,
+    now = new Date(),
+  ): Promise<TaskCompletionResult> {
     return this.updates.run(async () => {
       const data = await this.read();
       const index = data.tasks.findIndex((task) => task.id === id);
-      if (index < 0) return { deleted: false, revision: data.revision };
+      if (index < 0) return { outcome: "unchanged", revision: data.revision };
       const task = data.tasks[index];
-      if (task?.repeat !== "none" || task.updatedAt !== expectedUpdatedAt) {
-        return { deleted: false, revision: data.revision };
+      if (task?.repeat !== expectedRepeat || task.version !== expectedVersion) {
+        return { outcome: "unchanged", revision: data.revision };
       }
-      data.tasks.splice(index, 1);
+      if (expectedRepeat === "none") {
+        data.tasks.splice(index, 1);
+        data.revision += 1;
+        await writeJsonFileAtomic(this.filePath, data);
+        return { outcome: "deleted", revision: data.revision };
+      }
+      if (nextRunAt === undefined) throw new Error("Recurring completion requires a next run.");
+      task.nextRunAt = nextRunAt.toISOString();
+      task.version += 1;
+      task.updatedAt = now.toISOString();
       data.revision += 1;
       await writeJsonFileAtomic(this.filePath, data);
-      return { deleted: true, revision: data.revision };
+      return { outcome: "advanced", revision: data.revision };
+    });
+  }
+
+  /**
+   * Advances an overdue recurring task during startup when its claimed definition is unchanged.
+   *
+   * @param id - Stable task identifier.
+   * @param expectedVersion - Version read by the startup due-task pass.
+   * @param nextRunAt - First recurrence strictly after scheduler startup.
+   * @param now - Advancement instant used for the updated timestamp.
+   * @returns Whether the recurrence advanced and the resulting store revision.
+   */
+  async advanceRecurring(
+    id: string,
+    expectedVersion: number,
+    nextRunAt: Date,
+    now = new Date(),
+  ): Promise<{ advanced: boolean; revision: number }> {
+    return this.updates.run(async () => {
+      const data = await this.read();
+      const task = data.tasks.find((item) => item.id === id);
+      if (task === undefined || task.repeat === "none" || task.version !== expectedVersion) {
+        return { advanced: false, revision: data.revision };
+      }
+      task.nextRunAt = nextRunAt.toISOString();
+      task.version += 1;
+      task.updatedAt = now.toISOString();
+      data.revision += 1;
+      await writeJsonFileAtomic(this.filePath, data);
+      return { advanced: true, revision: data.revision };
     });
   }
 
@@ -285,6 +336,10 @@ function parseTask(value: unknown, logger: Pick<Logger, "warn">): AutonomousTask
   const destination = value.destination;
   if (
     typeof value.id !== "string" ||
+    (value.version !== undefined &&
+      (typeof value.version !== "number" ||
+        !Number.isSafeInteger(value.version) ||
+        value.version < 0)) ||
     typeof value.name !== "string" ||
     typeof value.description !== "string" ||
     typeof value.instructions !== "string" ||
@@ -302,6 +357,7 @@ function parseTask(value: unknown, logger: Pick<Logger, "warn">): AutonomousTask
   }
   return {
     id: value.id,
+    version: value.version ?? 0,
     name: value.name,
     description: value.description,
     instructions: value.instructions,

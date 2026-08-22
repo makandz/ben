@@ -69,6 +69,7 @@ function message(id: string, channelId = "channel-a", username = "Makan"): Human
 function autonomousTask(id = "task-one", channelId = "channel-b"): AutonomousTask {
   return {
     id,
+    version: 1,
     name: 'Check "plans"',
     description: "See whether plans are finalized.",
     instructions: "Read recent context and ask a concise follow-up.",

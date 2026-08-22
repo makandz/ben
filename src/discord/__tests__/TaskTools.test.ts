@@ -149,21 +149,45 @@ test("task tools reject unavailable channel destinations without requiring a cre
   assert.match(fixture.gateway.sent.at(-1)?.content ?? "", /^> ⚠️/);
 });
 
-test("live task tools expose and accept only one-time execution", async (t) => {
+test("live task tools expose and accept daily and weekly recurrence", async (t) => {
   const fixture = await createFixture(t);
   const repeatSchema = (
     fixture.create.definition.parameters as {
       properties: { repeat: { enum: string[] } };
     }
   ).properties.repeat;
-  assert.deepEqual(repeatSchema.enum, ["none"]);
+  assert.deepEqual(repeatSchema.enum, ["none", "daily", "weekly"]);
 
   await execute(fixture.view, {});
-  const recurring = await execute(
-    fixture.create,
-    taskArguments(0, "Recurring", "current", "daily"),
+  const daily = await execute(fixture.create, taskArguments(0, "Daily review", "current", "daily"));
+  assert.equal(readTask(daily).repeat, "daily");
+  assert.equal(
+    fixture.gateway.sent.at(-1)?.content,
+    '> Ben created task "Daily review" to run every day at 12:00 PM in #general.',
   );
-  assert.match(JSON.stringify(recurring), /recurring tasks are not available yet/);
+
+  await execute(fixture.view, {});
+  const weekly = await execute(fixture.create, taskArguments(1, "Weekly review", null, "weekly"));
+  assert.equal(readTask(weekly).repeat, "weekly");
+  assert.equal(
+    fixture.gateway.sent.at(-1)?.content,
+    '> Ben created task "Weekly review" to run every Saturday at 12:00 PM in his own channel.',
+  );
+
+  await execute(fixture.view, {});
+  const edited = await execute(fixture.edit, {
+    ...taskArguments(2, "Daily review", "current", "weekly"),
+    task_id: readTask(daily).id,
+  });
+  assert.equal(readTask(edited).repeat, "weekly");
+  assert.equal(
+    fixture.gateway.sent.at(-1)?.content,
+    '> Ben updated his task "Daily review". Next run: Saturday at 12:00 PM in #general.',
+  );
+
+  await execute(fixture.view, {});
+  const invalid = await execute(fixture.create, taskArguments(3, "Invalid", "current", "monthly"));
+  assert.match(JSON.stringify(invalid), /repeat must be none, daily, or weekly/);
 });
 
 async function createFixture(t: test.TestContext) {
