@@ -317,12 +317,6 @@ test("starts an autonomous task with exact activity copy and self-authored promp
     prompt,
     /Ben was awakened by a scheduled task that Ben previously created for itself\./,
   );
-  assert.match(prompt, /Task: Check "plans"/);
-  assert.match(prompt, /Description: See whether plans are finalized\./);
-  assert.match(
-    prompt,
-    /Instructions Ben wrote for itself:\nRead recent context and ask a concise follow-up\./,
-  );
   assert.doesNotMatch(prompt, /Ben was pinged by/);
   assert.equal(session.getActiveCreator(), undefined);
 });

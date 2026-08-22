@@ -57,7 +57,6 @@ const paths = {
 export type Application = {
   start(): Promise<void>;
   stop(): Promise<void>;
-  getRegisteredToolNames(): readonly string[];
 };
 
 export type ApplicationDependencies = {
@@ -266,9 +265,6 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   );
 
   return {
-    getRegisteredToolNames() {
-      return tools.definitions().map((definition) => definition.name);
-    },
     async start() {
       restoredCustomStatus = await customStatus.get();
       await adapter.start(env.discordToken);

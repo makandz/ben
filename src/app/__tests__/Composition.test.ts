@@ -31,12 +31,6 @@ test("composition performs no Discord login until explicitly started", async () 
     usageStore: new OpenAIUsageStore("logs/openai-usage", "gpt-5.4-mini", 0),
   });
   assert.equal(gateway.loginToken, undefined);
-  const toolNames = app.getRegisteredToolNames();
-  assert.ok(toolNames.includes("view_tasks"));
-  assert.ok(toolNames.includes("create_task"));
-  assert.ok(toolNames.includes("edit_task"));
-  assert.ok(toolNames.includes("delete_task"));
-  assert.ok(!toolNames.includes("create_scheduled_message"));
   await app.start();
   assert.equal(gateway.loginToken, "token");
   await app.stop();

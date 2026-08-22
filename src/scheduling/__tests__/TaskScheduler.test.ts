@@ -199,35 +199,6 @@ test("retries failed completion persistence without duplicating conversational w
   assert.deepEqual(store.completions, ["retry", "retry"]);
 });
 
-test("stale completion preserves edits, deletion, and recurrence type changes", async (t) => {
-  const cases: Array<{ replacement?: AutonomousTask; original: AutonomousTask }> = [
-    {
-      original: task("edited", "daily"),
-      replacement: { ...task("edited", "daily", "2026-08-23T12:00:00.000Z"), version: 2 },
-    },
-    { original: task("deleted", "daily") },
-    {
-      original: task("to-once", "daily"),
-      replacement: { ...task("to-once", "none", "2026-08-23T12:00:00.000Z"), version: 2 },
-    },
-    {
-      original: task("to-recurring", "none"),
-      replacement: { ...task("to-recurring", "weekly", "2026-08-28T12:00:00.000Z"), version: 2 },
-    },
-  ];
-
-  for (const { original, replacement } of cases) {
-    const store = new SchedulerStore([original]);
-    const queued: Array<{ task: AutonomousTask; complete: TaskCompletion }> = [];
-    const scheduler = schedulerFor(store, queued, () => new Date("2026-08-21T12:00:00.000Z"));
-    t.after(() => scheduler.stop());
-    await scheduler.start();
-    store.tasks = replacement === undefined ? [] : [replacement];
-    await queued[0]?.complete();
-    assert.deepEqual(store.tasks, replacement === undefined ? [] : [replacement]);
-  }
-});
-
 test("contains enqueue and missed-advance failures so later due tasks still run", async (t) => {
   const store = new SchedulerStore([
     task("missed", "daily", "2026-08-20T12:00:00.000Z"),

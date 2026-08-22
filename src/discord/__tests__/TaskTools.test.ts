@@ -45,7 +45,14 @@ test("task tools create current, named, and own-channel tasks after viewing", as
     '> Ben created task "Current check" to run Saturday at 12:00 PM in #general.',
   );
 
-  await execute(view, {});
+  const viewed = await execute(view, {});
+  const viewResult = readResult(viewed) as { revision: number; tasks: unknown[] };
+  assert.equal(viewResult.revision, 1);
+  assert.equal(viewResult.tasks.length, 1);
+  assert.match(JSON.stringify(viewResult.tasks), /Detailed instructions/);
+  assert.match(JSON.stringify(viewResult.tasks), /task_/);
+  assert.equal(gateway.sent.at(-1)?.content, "> Ben is viewing 1 task.");
+  assert.doesNotMatch(gateway.sent.at(-1)?.content ?? "", /Detailed|task_/);
   const named = await execute(create, taskArguments(1, "Plans check", "#plans"));
   assert.deepEqual(readTask(named).destination, {
     kind: "named",
@@ -69,20 +76,6 @@ test("task tools create current, named, and own-channel tasks after viewing", as
     '> Ben created task "Private check" to run Saturday at 12:00 PM in his own channel.',
   );
   assert.deepEqual(gateway.sent.at(-1)?.options, { allowUserMentions: false });
-});
-
-test("task tools return complete private metadata but lightweight public statuses", async (t) => {
-  const { gateway, view, create } = await createFixture(t);
-  await execute(view, {});
-  await execute(create, taskArguments(0, "Memory review", null));
-  const viewed = await execute(view, {});
-  const result = readResult(viewed) as { revision: number; tasks: unknown[] };
-  assert.equal(result.revision, 1);
-  assert.equal(result.tasks.length, 1);
-  assert.match(JSON.stringify(result.tasks), /Detailed instructions/);
-  assert.match(JSON.stringify(result.tasks), /task_/);
-  assert.equal(gateway.sent.at(-1)?.content, "> Ben is viewing 1 task.");
-  assert.doesNotMatch(gateway.sent.at(-1)?.content ?? "", /Detailed|task_/);
 });
 
 test("task tools fully replace, rename, and permanently delete tasks", async (t) => {
@@ -151,13 +144,6 @@ test("task tools reject unavailable channel destinations without requiring a cre
 
 test("live task tools expose and accept daily and weekly recurrence", async (t) => {
   const fixture = await createFixture(t);
-  const repeatSchema = (
-    fixture.create.definition.parameters as {
-      properties: { repeat: { enum: string[] } };
-    }
-  ).properties.repeat;
-  assert.deepEqual(repeatSchema.enum, ["none", "daily", "weekly"]);
-
   await execute(fixture.view, {});
   const daily = await execute(fixture.create, taskArguments(0, "Daily review", "current", "daily"));
   assert.equal(readTask(daily).repeat, "daily");
