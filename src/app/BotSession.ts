@@ -503,9 +503,11 @@ export class BotSession {
     channelId: string | undefined,
   ): Promise<void> {
     if (outcome.type === "sleep") {
-      await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
-        this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
-      });
+      if (this.activeTaskWake === undefined) {
+        await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
+          this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
+        });
+      }
       this.goToSleep("model");
       return;
     }
