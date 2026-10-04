@@ -36,8 +36,7 @@ function validationFailure(error: string): ToolResult {
 export const waitTool: Tool = {
   definition: {
     name: "wait",
-    description:
-      "Use when you have nothing to say or do right now, but expect the current conversation to continue and want to retain its context for the next human message.",
+    description: "Pause until the next human message, retaining active conversation context.",
     parameters: createObjectSchema({}, []),
   },
   async execute() {
@@ -53,14 +52,13 @@ export const waitTool: Tool = {
 export const sleepTool: Tool = {
   definition: {
     name: "sleep",
-    description:
-      "Use when the current conversation is finished or its active context is no longer useful. Save a brief factual summary before ending the conversation context.",
+    description: "Save a brief summary and end the active conversation, clearing its context.",
     parameters: createObjectSchema(
       {
         summary: {
           type: "string",
           description:
-            "A factual 1-2 sentence summary of the conversation and any important outcome or unresolved context that may be useful later. Do not include internal tool details.",
+            "Factual 1-2 sentence summary of the conversation, outcomes, and useful unresolved context.",
         },
       },
       ["summary"],

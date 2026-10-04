@@ -17,7 +17,7 @@ export function createRememberTool(dependencies: RememberToolDependencies): Tool
     definition: {
       name: "remember",
       description:
-        "Use when information learned during the current conversation could reasonably be useful after the conversation ends. The active conversation will be forgotten, so favor preserving potentially useful information rather than waiting until you are certain it belongs in permanent memory. Do not add clearly trivial, temporary, or redundant information. Also use this capability to correct or remove a displayed memory that is outdated, incorrect, or no longer useful.",
+        "Add, update, or delete memories useful beyond the current conversation. Posts a confirmation in the current channel.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -25,18 +25,16 @@ export function createRememberTool(dependencies: RememberToolDependencies): Tool
           action: {
             type: "string",
             enum: ["add", "update", "delete"],
-            description:
-              "The memory operation to perform. Use add for a new memory, update to completely replace an existing displayed memory with corrected or updated information, or delete to remove an existing displayed memory that should no longer be retained.",
+            description: "Add a memory, fully replace an existing memory, or delete it.",
           },
           id: {
             anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }],
-            description:
-              "The ID of the existing displayed memory to update or delete. Use null when adding a new memory.",
+            description: "Actual displayed memory ID for update or delete; null for add.",
           },
           memory: {
             anyOf: [{ type: "string" }, { type: "null" }],
             description:
-              "The complete memory to store. Write it as a concise, self-contained statement that will still make sense outside the current conversation. Use null when deleting a memory.",
+              "Complete, concise, self-contained memory for add or update; null for delete.",
           },
         },
         required: ["action", "id", "memory"],

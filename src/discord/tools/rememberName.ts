@@ -24,19 +24,18 @@ export function createRememberNameTool(dependencies: RememberNameToolDependencie
     definition: {
       name: "remember_name",
       description:
-        "Use when someone clearly establishes that a Discord username belongs to a particular real or preferred name, so you can recognize and address that person naturally in future conversations.",
+        "Remember a confirmed real or preferred name for a Discord member. Posts a confirmation in the current channel.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
           username: {
             type: "string",
-            description: "The exact Discord username whose name has been established.",
+            description: "Exact Discord username.",
           },
           name: {
             type: "string",
-            description:
-              "The person's real or preferred name as established by the conversation. Do not guess or infer a name that was not clearly provided.",
+            description: "Real or preferred name clearly established in the conversation.",
           },
         },
         required: ["username", "name"],
