@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { escapeBroadcastMentions } from "../discord/mentions.js";
@@ -153,25 +154,31 @@ test("formats a recurring task wake as Ben's own detailed scheduled intention", 
   assert.doesNotMatch(result, /New messages:/);
 });
 
-test("loads the copied messaging prompt and falls back for a missing file", async () => {
+test("loads the messaging prompt asset and falls back for a missing file", async () => {
+  const expected = await readFile(new URL("../prompts/messaging.md", import.meta.url), "utf8");
   const loaded = await loadMessagingPrompt();
   const fallback = await loadMessagingPrompt(
     new URL("file:///definitely-missing-ben-messaging-prompt.txt"),
   );
 
-  assert.match(loaded, /Ben/);
+  assert.notEqual(expected.trim(), "");
+  assert.equal(loaded, expected);
   assert.match(fallback, /Discord bot participating in a group chat/);
 });
 
 test("loads and composes the shared base prompt before task instructions", async () => {
+  const expected = await readFile(new URL("../prompts/base.md", import.meta.url), "utf8");
+  const loadedBase = await loadBasePrompt();
   const missingBase = await loadBasePrompt(
     new URL("file:///definitely-missing-ben-base-prompt.md"),
   );
 
+  assert.notEqual(expected.trim(), "");
+  assert.equal(loadedBase, expected);
   assert.equal(missingBase, "");
   assert.equal(composeInstructions(missingBase, "task instructions\n"), "task instructions");
   assert.equal(
-    composeInstructions("general instructions\n", "task instructions\n"),
-    "general instructions\n\ntask instructions",
+    composeInstructions(loadedBase, "task instructions\n"),
+    `${expected.trim()}\n\ntask instructions`,
   );
 });

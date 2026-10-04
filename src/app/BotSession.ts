@@ -32,11 +32,6 @@ export type ConversationRunner = {
   ): Promise<ConversationOutcome>;
 };
 
-export type ActiveConversationUser = {
-  userId: string;
-  username: string;
-};
-
 export type BotSessionPersistence = {
   summaries?: {
     list(): Promise<readonly { summary: string }[]>;
@@ -104,7 +99,6 @@ export class BotSession {
   private idleTimer: NodeJS.Timeout | undefined;
   private typingTimer: NodeJS.Timeout | undefined;
   private activeMessageIds = new Set<string>();
-  private activeCreator: ActiveConversationUser | undefined;
   private activeTaskWake: TaskWake | undefined;
   private taskPromptPending = false;
   private taskStarting = false;
@@ -248,15 +242,6 @@ export class BotSession {
    */
   getActiveChannelId(): string | undefined {
     return this.activeChannelId;
-  }
-
-  /**
-   * Returns the human whose message initiated the current model turn.
-   *
-   * @returns The first human in the batch currently invoking tools, if any.
-   */
-  getActiveCreator(): ActiveConversationUser | undefined {
-    return this.activeCreator === undefined ? undefined : { ...this.activeCreator };
   }
 
   /**
@@ -413,10 +398,6 @@ export class BotSession {
     this.pendingBatch = [];
     this.pendingRecentContext = [];
     this.mode = "processing";
-    const creator = taskWake === undefined ? messages[0] : undefined;
-    this.activeCreator =
-      creator === undefined ? undefined : { userId: creator.userId, username: creator.username };
-
     const stopTyping = this.startTyping(channelId);
     const includeFirstPromptContext = this.history.length === 0;
     const knownPeople =
@@ -476,7 +457,6 @@ export class BotSession {
         .catch((error: unknown): ConversationOutcome => ({ type: "failed", error }));
       await this.applyOutcome(outcome, channelId);
     } finally {
-      this.activeCreator = undefined;
       stopTyping();
     }
   }
@@ -577,7 +557,6 @@ export class BotSession {
     this.queuedDuringProcessing = [];
     this.history = [];
     this.activeMessageIds.clear();
-    this.activeCreator = undefined;
     this.activeTaskWake = undefined;
     this.taskPromptPending = false;
     this.taskStarting = false;

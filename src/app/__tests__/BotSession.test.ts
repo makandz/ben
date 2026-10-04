@@ -318,7 +318,6 @@ test("starts an autonomous task with exact activity copy and self-authored promp
     /Ben was awakened by a scheduled task that Ben previously created for itself\./,
   );
   assert.doesNotMatch(prompt, /Ben was pinged by/);
-  assert.equal(session.getActiveCreator(), undefined);
 });
 
 test("queues a task behind a human conversation and starts it only after sleep", async (t) => {
@@ -340,36 +339,17 @@ test("queues a task behind a human conversation and starts it only after sleep",
   assert.match(orchestrator.calls[1]?.userText ?? "", /previously created for itself/);
 });
 
-test("task wait accepts same-channel follow-up with a human active creator", async (t) => {
-  let session!: BotSession;
-  const creators: Array<ReturnType<BotSession["getActiveCreator"]>> = [];
-  const calls: string[] = [];
-  const runner = {
-    async run(_instructions: string, _history: readonly ConversationItem[], userText: string) {
-      creators.push(session.getActiveCreator());
-      calls.push(userText);
-      return wait();
-    },
-  };
-  const transport = new RecordingTransport();
-  session = new BotSession(
-    "system instructions",
-    runner,
-    transport,
-    new RecordingPresence(),
-    quietLogger,
-    fastTimings,
-  );
+test("task wait accepts same-channel human follow-up without another ping", async (t) => {
+  const orchestrator = new ScriptedOrchestrator([wait(), wait()]);
+  const { session } = createSession(orchestrator);
   t.after(() => session.stop());
 
   session.enqueueTask(autonomousTask(), async () => undefined);
-  await until(() => calls.length === 1);
+  await until(() => orchestrator.calls.length === 1);
   session.handleMessage(message("answer", "channel-b", "Makan"), false);
-  await until(() => calls.length === 2);
+  await until(() => orchestrator.calls.length === 2);
 
-  assert.equal(creators[0], undefined);
-  assert.deepEqual(creators[1], { userId: "makan", username: "Makan" });
-  assert.match(calls[1] ?? "", /answer/);
+  assert.match(orchestrator.calls[1]?.userText ?? "", /answer/);
 });
 
 test("completes a one-time task on model sleep and idle sleep", async (t) => {
@@ -574,30 +554,4 @@ test("rejects invalid timing overrides", () => {
     () => createSession(new ScriptedOrchestrator([]), undefined, undefined, { idleSleepMs: -1 }),
     /idleSleepMs must be a non-negative finite number/,
   );
-});
-
-test("exposes the instigating user only while the model can invoke tools", async (t) => {
-  const creators: unknown[] = [];
-  let session!: BotSession;
-  const orchestrator = {
-    async run(): Promise<ConversationOutcome> {
-      creators.push(session.getActiveCreator());
-      return wait();
-    },
-  };
-  session = new BotSession(
-    "system instructions",
-    orchestrator,
-    new RecordingTransport(),
-    new RecordingPresence(),
-    quietLogger,
-    fastTimings,
-  );
-  t.after(() => session.stop());
-
-  session.handleMessage(message("schedule-this", "channel-a", "Makan"), true);
-  await until(() => creators.length === 1);
-  await until(() => session.getActiveCreator() === undefined);
-
-  assert.deepEqual(creators, [{ userId: "makan", username: "Makan" }]);
 });

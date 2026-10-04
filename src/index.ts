@@ -16,7 +16,6 @@ export { loadEnv, type AppEnv, type LogLevel };
 export { Logger, type LogData } from "./logger.js";
 export {
   BotSession,
-  type ActiveConversationUser,
   type BotSessionPersistence,
   type BotSessionTimingOverrides,
   type BotSessionPromptContext,
