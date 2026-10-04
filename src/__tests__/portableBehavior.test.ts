@@ -21,6 +21,11 @@ test("escapes broadcast mentions without changing user mentions", () => {
 });
 
 test("resolves established model pricing and rejects unknown models", () => {
+  assert.deepEqual(getModelPricing("gpt-6-luna"), {
+    inputUsdPer1M: 0.1,
+    cachedInputUsdPer1M: 0.01,
+    outputUsdPer1M: 0.5,
+  });
   assert.deepEqual(getModelPricing("gpt-5.6-luna"), {
     inputUsdPer1M: 0.2,
     cachedInputUsdPer1M: 0.02,

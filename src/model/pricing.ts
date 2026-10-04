@@ -11,6 +11,11 @@ export type BillableUsage = {
 };
 
 export const modelPricing: Readonly<Record<string, ModelPricing>> = {
+  "gpt-6-luna": {
+    inputUsdPer1M: 0.1,
+    cachedInputUsdPer1M: 0.01,
+    outputUsdPer1M: 0.5,
+  },
   "gpt-5.6-luna": {
     inputUsdPer1M: 0.2,
     cachedInputUsdPer1M: 0.02,

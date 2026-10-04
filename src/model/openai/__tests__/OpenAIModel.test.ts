@@ -33,7 +33,7 @@ test("makes one configured request, maps its turn, and records usage", async (co
 
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0], {
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     instructions: "Be Ben.",
     input: [{ type: "message", role: "user", content: "hello" }],
     tools: [
@@ -55,7 +55,9 @@ test("makes one configured request, maps its turn, and records usage", async (co
   assert.deepEqual(turn.items, [
     { type: "tool_call", callId: "call-1", name: "finish", arguments: {} },
   ]);
-  assert.equal((await usageStore.getTodaySummary()).requests, 1);
+  const summary = await usageStore.getTodaySummary();
+  assert.equal(summary.requests, 1);
+  assert.equal(summary.costUsd, 0.0000182);
 });
 
 test("blocks the provider request after the daily budget is reached", async (context) => {
@@ -115,6 +117,7 @@ test("supports requests without forcing a tool call", async (context) => {
 
   assert.equal("tools" in (request ?? {}), false);
   assert.equal("tool_choice" in (request ?? {}), false);
+  assert.equal(request?.model, "gpt-6-luna");
   assert.equal(request?.max_output_tokens, 8_192);
   assert.deepEqual(request?.reasoning, { effort: "xhigh" });
   assert.deepEqual(turn.items, [{ type: "message", role: "assistant", text: "hello" }]);
