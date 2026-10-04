@@ -1,0 +1,2 @@
+# Copy local credentials into Codex-managed worktrees.
+.env
