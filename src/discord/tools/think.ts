@@ -21,8 +21,7 @@ export function createThinkTool(dependencies: ThinkToolDependencies): Tool {
   return {
     definition: {
       name: "think",
-      description:
-        "Express a brief thought in your inner voice. Use it when you want to pause, wonder, reconsider, notice something, or react to yourself before continuing. Keep it natural and concise.",
+      description: "Express a brief thought in your inner voice when it feels natural.",
       parameters: {
         type: "object",
         additionalProperties: false,

@@ -26,7 +26,7 @@ export function createUpdateCustomStatusTool(
     definition: {
       name: "update_status",
       description:
-        "Use when someone asks you to set, change, or clear your global Discord custom status.",
+        "Set, change, or clear your global Discord custom status when asked. Posts a confirmation in the current channel.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -34,14 +34,13 @@ export function createUpdateCustomStatusTool(
           emoji: {
             type: ["string", "null"],
             maxLength: MAX_EMOJI_LENGTH,
-            description:
-              "The Unicode emoji to display with the custom status. Use null when no emoji is wanted or when clearing the status.",
+            description: "Unicode status emoji; null for none.",
           },
           content: {
             type: ["string", "null"],
             maxLength: MAX_STATUS_LENGTH,
             description:
-              "The text to display as the custom status. Use null when no text is wanted or when clearing the status. Set both emoji and content to null to clear the status completely.",
+              "Status text; null for none. Set both emoji and content to null to clear the status.",
           },
         },
         required: ["emoji", "content"],

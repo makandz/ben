@@ -22,15 +22,14 @@ export function createSendMessageTool(dependencies: SendMessageToolDependencies)
   return createActionableTool({
     definition: {
       name: "message",
-      description:
-        "Use whenever you want to say something user-visible in the current Discord channel. This is the only way to communicate text to people in Discord.",
+      description: "Send conversational text to the current Discord channel.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
           text: {
             description:
-              "The message text to send. Use a string for one brief message. Use an ordered array for a response longer than a couple of sentences or containing multiple distinct thoughts. Each item should be a complete, natural message. Keep closely related sentences together and do not split individual sentences across messages.",
+              "One message string, or an ordered array of complete messages sent in sequence.",
             anyOf: [
               { type: "string", minLength: 1, maxLength: MAX_MESSAGE_LENGTH },
               {
@@ -44,7 +43,7 @@ export function createSendMessageTool(dependencies: SendMessageToolDependencies)
           reply_to: {
             type: ["string", "null"],
             description:
-              "The exact internal message_id to visibly reply to. Use this only when a visible reply is needed to distinguish which message or person is being answered, such as responding individually to multiple messages or people, or when someone explicitly asks you to respond to or point back to an earlier message. Otherwise use null, including for a normal response to a single recent message. With multiple texts, only the first is attached as a reply; use separate calls when different responses need different reply targets.",
+              "Exact message_id from the active transcript when a reply reference is needed; null for normal back-and-forth. Only the first message in an array uses this reference.",
           },
         },
         required: ["text", "reply_to"],

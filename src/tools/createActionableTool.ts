@@ -15,12 +15,11 @@ const nextActionProperties = {
     type: ["string", "null"],
     enum: ["continue", "wait", "sleep", null],
     description:
-      "What to do after the tool succeeds. Use continue if more tool calls or actions are needed now, wait to pause until another human message arrives while preserving the active conversation context, or sleep to end the active conversation and clear its context. Null defaults to continue.",
+      "After success: continue acting, wait for a human message retaining context, or sleep and clear context. Null defaults to continue.",
   },
   sleep_summary: {
     type: ["string", "null"],
-    description:
-      "A factual 1-2 sentence summary of the conversation to preserve when next_action is sleep. Use null for other next actions.",
+    description: "Required factual 1-2 sentence conversation summary for sleep; null otherwise.",
   },
 } as const;
 

@@ -38,7 +38,7 @@ export function createViewTasksTool(dependencies: TaskToolDependencies): Tool {
     definition: {
       name: "view_tasks",
       description:
-        "View every task you have created for yourself. You MUST call this immediately before create_task or edit_task and pass the returned revision unchanged.",
+        "View all your tasks and their current revision for create_task or edit_task. Posts the task count in the current channel.",
       parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
     },
     async execute() {
@@ -67,7 +67,7 @@ export function createCreateTaskTool(dependencies: TaskToolDependencies): Tool {
     definition: {
       name: "create_task",
       description:
-        "Create a future task for yourself. You MUST call view_tasks immediately beforehand and pass its current revision. Write detailed, self-contained instructions that your future self can interpret without the current conversation.",
+        "First call view_tasks for a fresh revision, then create a future task. Posts a confirmation in the current channel.",
       parameters: taskParameters(false),
     },
     async execute(call) {
@@ -104,7 +104,7 @@ export function createEditTaskTool(dependencies: TaskToolDependencies): Tool {
     definition: {
       name: "edit_task",
       description:
-        "Replace one of your existing tasks. You MUST call view_tasks immediately beforehand, use the task ID it returns, and pass its current revision. Supply the entire replacement task, including unchanged fields.",
+        "First call view_tasks for a fresh revision, then fully replace a task by its stable ID, including unchanged fields. Posts a confirmation in the current channel.",
       parameters: taskParameters(true),
     },
     async execute(call) {
@@ -148,7 +148,7 @@ export function createDeleteTaskTool(dependencies: TaskToolDependencies): Tool {
     definition: {
       name: "delete_task",
       description:
-        "Permanently delete one of your tasks by the stable task ID returned from view_tasks. Deletion does not require a revision.",
+        "Delete a task by its stable ID from view_tasks; no revision required. Posts a confirmation in the current channel.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -185,7 +185,7 @@ function taskParameters(includeId: boolean): Readonly<Record<string, unknown>> {
     revision: {
       type: "integer",
       minimum: 0,
-      description: "Exact revision returned by the immediately preceding view_tasks call.",
+      description: "Current revision returned by view_tasks, unchanged.",
     },
     name: { type: "string", minLength: 1, maxLength: 100, description: "Unique task title." },
     description: {
@@ -199,26 +199,27 @@ function taskParameters(includeId: boolean): Readonly<Record<string, unknown>> {
       minLength: 1,
       maxLength: 4_000,
       description:
-        "Detailed, self-contained instructions you are writing for your future self, including relevant people, context, desired actions, and outcome.",
+        "Complete instructions for your future self, with relevant people, context, actions, and outcome; no current conversation will be available.",
     },
     channel: {
       type: ["string", "null"],
       description:
-        'Where the task should wake you. Use "current" for this exact channel, a readable channel name such as "#general" for another channel, or null for your own channel.',
+        'Wake-up channel: "current", a readable name such as "#general", or null for your own channel.',
     },
     run_date: {
       type: "string",
-      description: "Exact next local run date in YYYY-MM-DD format.",
+      description:
+        "Next run date in America/Toronto, YYYY-MM-DD; must be in the future with run_time.",
     },
     run_time: {
       type: "string",
-      description: "Exact next local run time in 24-hour HH:mm format.",
+      description: "Next run time in America/Toronto, 24-hour HH:mm.",
     },
     repeat: {
       type: "string",
       enum: ["none", "daily", "weekly"],
       description:
-        "How the task repeats. Use none to run once, daily to run every day at the supplied local time, or weekly to run on the weekday represented by the supplied local date.",
+        "None runs once; daily repeats at run_time; weekly repeats on run_date's weekday at run_time.",
     },
   };
   if (includeId) {
