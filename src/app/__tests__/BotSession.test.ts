@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { LogData } from "../../logger.js";
 import { BotSession, type BotSessionPersistence } from "../BotSession.js";
 import type { PresenceState } from "../PresenceTransport.js";
 import type { ConversationItem, ConversationOutcome, HumanMessage } from "../types.js";
@@ -554,4 +555,58 @@ test("rejects invalid timing overrides", () => {
     () => createSession(new ScriptedOrchestrator([]), undefined, undefined, { idleSleepMs: -1 }),
     /idleSleepMs must be a non-negative finite number/,
   );
+});
+
+test("session warnings retain actual errors and channel context through sleep", async (t) => {
+  for (const failSend of [false, true]) {
+    const events: Array<{ event: string; data?: LogData; message?: string }> = [];
+    const record = (event: string, data?: LogData, message?: string): void => {
+      events.push({
+        event,
+        ...(data === undefined ? {} : { data }),
+        ...(message === undefined ? {} : { message }),
+      });
+    };
+    const failure = new Error("send rejected");
+    let delivered = false;
+    const session = new BotSession(
+      "instructions",
+      new ScriptedOrchestrator([reply("hello"), wait(), { type: "sleep", summary: "done" }]),
+      {
+        async sendMessage() {
+          if (failSend) throw failure;
+          delivered = true;
+          return { id: "sent-1", createdAt: 1 };
+        },
+        async sendTyping() {},
+        async logStatus() {},
+      },
+      new RecordingPresence(),
+      { debug: record, info: record, warn: record },
+      { ...fastTimings, idleSleepMs: 1000 },
+    );
+    t.after(() => session.stop());
+    session.handleMessage(message("ping"), true);
+    await until(() =>
+      failSend ? events.some(({ event }) => event === "chat.send_failed") : delivered,
+    );
+    session.handleMessage(message("follow-up"), false);
+    await until(() => events.some(({ event }) => event === "conversation.wait"));
+    assert.equal(events.filter(({ event }) => event === "conversation.reply").length, 0);
+    const outcome = events.find(
+      ({ event }) => event === (failSend ? "chat.send_failed" : "conversation.wait"),
+    );
+    assert.equal(outcome?.data?.channelId, "channel-a");
+    assert.equal(outcome?.data?.channelName, "general");
+    assert.match(outcome?.message ?? "", /#general/);
+    if (failSend) assert.equal(outcome?.data?.error, failure);
+    session.handleMessage(message("done"), false);
+    await until(() => events.some(({ event }) => event === "session.sleep"));
+    const sleep = events.find(({ event }) => event === "session.sleep");
+    assert.equal(sleep?.data?.channelId, "channel-a");
+    assert.equal(sleep?.data?.channelName, "general");
+    assert.match(sleep?.message ?? "", /#general/);
+    assert.equal(session.getActiveChannelId(), undefined);
+    session.stop();
+  }
 });

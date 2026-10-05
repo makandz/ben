@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --include \"src/prompts/*.md\" src/index.ts",
+    "dev": "NODE_ENV=development tsx watch --include \"src/prompts/*.md\" src/index.ts",
     "build": "tsc --project tsconfig.json && mkdir -p dist/prompts && cp src/prompts/*.md dist/prompts/",
-    "start": "node dist/index.js",
+    "start": "NODE_ENV=production node dist/index.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -20,6 +20,7 @@
     "discord.js": "^14.26.4",
     "dotenv": "^17.2.3",
     "openai": "^6.42.0",
+    "pino": "^10.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

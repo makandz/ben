@@ -10,7 +10,7 @@ import type {
 
 export type DiscordInputHandlers = {
   handleMessage(message: HumanMessage, pinged: boolean): void;
-  handleTyping(channelId: string, userId: string, username: string): void;
+  handleTyping(channelId: string, userId: string, username: string, channelName?: string): void;
   handleReady?(username: string): void;
   handleCommand?(event: DiscordCommandEvent): void;
 };
@@ -36,13 +36,17 @@ export class DiscordAdapter {
     gateway.setHandlers({
       ready: (user) => {
         users.rememberUser(user);
-        logger.info("discord.ready", { user: user.username });
+        logger.info(
+          "discord.ready",
+          { user: user.username },
+          `Connected to Discord as ${user.username}`,
+        );
         handlers.handleReady?.(user.username);
       },
       message: (message) => this.handleMessage(message),
       typing: (event) => this.handleTyping(event),
       command: (event) => handlers.handleCommand?.(event),
-      error: (error) => logger.error("discord.error", { error: String(error) }),
+      error: (error) => logger.error("discord.error", { error }, "Discord connection failed"),
     });
   }
 
@@ -97,6 +101,11 @@ export class DiscordAdapter {
     if (event.user.bot || event.user.id === botUser?.id) return;
     this.users.rememberUser(event.user);
     this.channels.rememberChannel(event.channel);
-    this.handlers.handleTyping(event.channel.id, event.user.id, event.user.username);
+    this.handlers.handleTyping(
+      event.channel.id,
+      event.user.id,
+      event.user.username,
+      this.channels.getName(event.channel.id),
+    );
   }
 }

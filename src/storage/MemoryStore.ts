@@ -116,12 +116,20 @@ export class MemoryStore {
       memories: parsed.memories.map((value, id) => {
         if (value === null) return null;
         if (typeof value !== "string") {
-          this.logger.warn("memories.invalid_entry_ignored", { id });
+          this.logger.warn(
+            "memories.invalid_entry_ignored",
+            { id },
+            "Ignored an invalid memory entry",
+          );
           return null;
         }
         const memory = value.trim();
         if (memory.length === 0 || memory.length > MAX_MEMORY_LENGTH) {
-          this.logger.warn("memories.invalid_entry_ignored", { id });
+          this.logger.warn(
+            "memories.invalid_entry_ignored",
+            { id },
+            "Ignored an invalid memory entry",
+          );
           return null;
         }
         return memory;

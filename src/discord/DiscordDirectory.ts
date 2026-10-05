@@ -105,6 +105,16 @@ export class ChannelMentionDirectory {
   }
 
   /**
+   * Returns a cached channel name without performing network lookups.
+   *
+   * @param channelId - Verified channel identifier.
+   * @returns The last known channel name, or undefined when unavailable.
+   */
+  getName(channelId: string): string | undefined {
+    return this.idToName.get(channelId);
+  }
+
+  /**
    * Converts known Discord channel tags to readable names.
    *
    * @param content - Incoming Discord message content.

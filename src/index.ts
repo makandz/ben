@@ -13,7 +13,7 @@ import { composeInstructions, loadBasePrompt } from "./prompting/promptLayers.js
 import { loadMessagingPrompt } from "./prompting/messagingPrompt.js";
 
 export { loadEnv, type AppEnv, type LogLevel };
-export { Logger, type LogData } from "./logger.js";
+export { Logger, type LogData, type LoggerOptions } from "./logger.js";
 export {
   BotSession,
   type BotSessionPersistence,

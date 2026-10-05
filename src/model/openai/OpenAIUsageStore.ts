@@ -40,7 +40,7 @@ type UsageMonthFile = {
 };
 
 type UsageLogger = {
-  warn(event: string, data?: Record<string, unknown>): void;
+  warn(event: string, data?: Record<string, unknown>, message?: string): void;
 };
 
 const silentLogger: UsageLogger = { warn: () => undefined };
@@ -144,7 +144,11 @@ export class OpenAIUsageStore {
       const parsed = await readJsonFile(filePath);
       return parsed === undefined ? { month, days: {} } : parseMonthFile(parsed, month);
     } catch (error) {
-      this.logger.warn("openai.usage_read_failed", { path: filePath, error: String(error) });
+      this.logger.warn(
+        "openai.usage_read_failed",
+        { path: filePath, error },
+        "Couldn’t read OpenAI usage",
+      );
       throw error;
     }
   }

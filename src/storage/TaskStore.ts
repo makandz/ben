@@ -377,7 +377,7 @@ function parseTask(value: unknown, logger: Pick<Logger, "warn">): AutonomousTask
 
 /** Logs one malformed entry and returns the filter sentinel. */
 function invalidTask(logger: Pick<Logger, "warn">): undefined {
-  logger.warn("tasks.invalid_entry_ignored");
+  logger.warn("tasks.invalid_entry_ignored", undefined, "Ignored an invalid task entry");
   return undefined;
 }
 

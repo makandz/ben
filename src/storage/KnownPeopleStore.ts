@@ -95,14 +95,22 @@ export class KnownPeopleStore {
         typeof value.username !== "string" ||
         typeof value.name !== "string"
       ) {
-        this.logger.warn("known_people.invalid_entry_ignored", { userId });
+        this.logger.warn(
+          "known_people.invalid_entry_ignored",
+          { userId },
+          "Ignored an invalid known-person entry",
+        );
         continue;
       }
       const normalizedUserId = userId.trim();
       const username = value.username.trim();
       const name = value.name.trim();
       if (normalizedUserId.length === 0 || username.length === 0 || name.length === 0) {
-        this.logger.warn("known_people.invalid_entry_ignored", { userId });
+        this.logger.warn(
+          "known_people.invalid_entry_ignored",
+          { userId },
+          "Ignored an invalid known-person entry",
+        );
         continue;
       }
       data.people[normalizedUserId] = { username, name };

@@ -33,7 +33,11 @@ export async function registerConsolidateCommand(
   logger: Pick<Logger, "info">,
 ): Promise<void> {
   const action = await gateway.registerCommand(consolidateCommand);
-  logger.info(`discord.command_${action}`, { command: consolidateCommand.name, scope: "global" });
+  logger.info(
+    `discord.command_${action}`,
+    { command: consolidateCommand.name, scope: "global" },
+    `${action === "registered" ? "Registered" : "Updated"} /${consolidateCommand.name}`,
+  );
 }
 
 /**
@@ -96,7 +100,7 @@ export async function handleConsolidateCommand(
       await interaction.reply("Consolidation is already running.");
     }
   } catch (error) {
-    logger.warn("discord.consolidate_command_failed", { error: String(error) });
+    logger.warn("discord.consolidate_command_failed", { error }, "Couldn’t handle /consolidate");
   }
 }
 

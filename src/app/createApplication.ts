@@ -223,8 +223,8 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
     gateway,
     {
       handleMessage: (message, pinged) => session.handleMessage(message, pinged),
-      handleTyping: (channelId, userId, username) =>
-        session.handleTyping(channelId, userId, username),
+      handleTyping: (channelId, userId, username, channelName) =>
+        session.handleTyping(channelId, userId, username, channelName),
       handleReady: () => {
         if (ready) return;
         ready = true;
@@ -232,15 +232,27 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         try {
           gateway.setCustomStatus(restoredCustomStatus);
         } catch (error) {
-          logger.warn("discord.custom_status_restore_failed", { error: String(error) });
+          logger.warn(
+            "discord.custom_status_restore_failed",
+            { error },
+            "Couldn’t restore custom status",
+          );
         }
         void taskScheduler.start();
         void memoryConsolidationScheduler.start();
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
-          logger.warn("discord.command_registration_failed", { error: String(error) });
+          logger.warn(
+            "discord.command_registration_failed",
+            { command: "usage", error },
+            "Couldn’t register /usage",
+          );
         });
         void registerConsolidateCommand(gateway, logger).catch((error: unknown) => {
-          logger.warn("discord.command_registration_failed", { error: String(error) });
+          logger.warn(
+            "discord.command_registration_failed",
+            { command: "consolidate", error },
+            "Couldn’t register /consolidate",
+          );
         });
       },
       handleCommand: (event) => {
@@ -285,6 +297,10 @@ async function sendConsolidationStatus(
   message: string,
 ): Promise<void> {
   await transport.logStatus(message).catch((error: unknown) => {
-    logger.warn("discord.memory_consolidation_status_failed", { error: String(error) });
+    logger.warn(
+      "discord.memory_consolidation_status_failed",
+      { error },
+      "Couldn’t send consolidation status",
+    );
   });
 }

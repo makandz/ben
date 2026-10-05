@@ -67,7 +67,11 @@ export class ConversationSummaryStore {
       const parsed = await readJsonFile(this.filePath);
       if (parsed === undefined) return [];
       if (!isRecord(parsed)) {
-        this.logger.warn("conversation_summaries.invalid", { path: this.filePath });
+        this.logger.warn(
+          "conversation_summaries.invalid",
+          { path: this.filePath },
+          "Ignored invalid conversation summaries",
+        );
         return [];
       }
       if (!Array.isArray(parsed.conversations)) return [];
@@ -76,10 +80,14 @@ export class ConversationSummaryStore {
         .filter((summary): summary is ConversationSummary => summary !== undefined)
         .slice(-MAX_CONVERSATION_SUMMARIES);
     } catch (error) {
-      this.logger.warn("conversation_summaries.read_failed", {
-        path: this.filePath,
-        error: String(error),
-      });
+      this.logger.warn(
+        "conversation_summaries.read_failed",
+        {
+          path: this.filePath,
+          error,
+        },
+        "Couldn’t read conversation summaries",
+      );
       return [];
     }
   }

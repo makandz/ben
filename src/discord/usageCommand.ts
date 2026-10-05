@@ -20,7 +20,11 @@ export async function registerUsageCommand(
   logger: Pick<Logger, "info">,
 ): Promise<void> {
   const action = await gateway.registerCommand(usageCommand);
-  logger.info(`discord.command_${action}`, { command: usageCommand.name, scope: "global" });
+  logger.info(
+    `discord.command_${action}`,
+    { command: usageCommand.name, scope: "global" },
+    `${action === "registered" ? "Registered" : "Updated"} /${usageCommand.name}`,
+  );
 }
 
 /**
@@ -39,7 +43,7 @@ export async function handleUsageCommand(
   try {
     await interaction.reply(formatUsageSummary(await usageStore.getTodaySummary()));
   } catch (error) {
-    logger.warn("discord.usage_command_failed", { error: String(error) });
+    logger.warn("discord.usage_command_failed", { error }, "Couldn’t handle /usage");
     await interaction.reply({ content: "Could not read usage right now.", ephemeral: true });
   }
 }

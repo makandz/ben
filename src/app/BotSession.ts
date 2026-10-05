@@ -87,6 +87,7 @@ export class BotSession {
   private readonly timings: SessionTimings;
   private mode: SessionMode = "sleeping";
   private activeChannelId: string | undefined;
+  private activeChannelName: string | undefined;
   private sleepingContext = new Map<string, HumanMessage[]>();
   private pendingBatch: HumanMessage[] = [];
   private queuedDuringProcessing: HumanMessage[] = [];
@@ -215,14 +216,19 @@ export class BotSession {
    * @param channelId - Channel containing the typing activity.
    * @param userId - Typing user's identifier.
    * @param username - Typing user's display name for diagnostics.
+   * @param channelName - Known channel name supplied by the input adapter, without lookups.
    */
-  handleTyping(channelId: string, userId: string, username: string): void {
+  handleTyping(channelId: string, userId: string, username: string, channelName?: string): void {
     if (this.mode === "sleeping" || this.mode === "dreaming") return;
 
     const users = this.typingByChannel.get(channelId) ?? new Map<string, TypingActivity>();
     users.set(userId, { expiresAt: Date.now() + this.timings.typingDebounceMs });
     this.typingByChannel.set(channelId, users);
-    this.logger.debug("typing.tracked", { channelId, username, activeUsers: users.size });
+    this.logger.debug(
+      "typing.tracked",
+      { channelId, channelName, username, activeUsers: users.size },
+      `${username} is typing in ${channelName === undefined ? (channelId === this.activeChannelId ? this.channelLabel() : channelId) : `#${channelName}`}`,
+    );
 
     if (this.mode === "awake" && this.pendingBatch[0]?.channelId === channelId) {
       this.scheduleDebounce();
@@ -274,7 +280,7 @@ export class BotSession {
   beginDreaming(): boolean {
     if (this.mode !== "sleeping") return false;
     this.mode = "dreaming";
-    this.logger.info("session.dreaming_started");
+    this.logger.info("session.dreaming_started", undefined, "Started dreaming");
     return true;
   }
 
@@ -282,7 +288,11 @@ export class BotSession {
   finishDreaming(): void {
     if (this.mode !== "dreaming") return;
     this.mode = "sleeping";
-    this.logger.info("session.dreaming_finished", { queuedChannels: this.queuedWakes.length });
+    this.logger.info(
+      "session.dreaming_finished",
+      { queuedChannels: this.queuedWakes.length },
+      "Finished dreaming",
+    );
     this.promoteQueuedWake();
   }
 
@@ -290,6 +300,8 @@ export class BotSession {
   private activateWake(wake: QueuedWake): void {
     this.mode = "awake";
     this.activeChannelId = wake.channelId;
+    this.activeChannelName =
+      wake.kind === "task" ? wake.task.destination.channelName : wake.messages[0]?.channelName;
     this.pendingBatch = wake.messages;
     this.pendingRecentContext = wake.recentContext;
     this.activeMessageIds = new Set(
@@ -303,11 +315,19 @@ export class BotSession {
       this.lastMessageAt.set(wake.channelId, Date.now());
     }
     this.presence.setPresence({ status: "online" });
-    this.logger.info("session.wake", {
-      channelId: wake.channelId,
-      source: wake.kind,
-      messages: wake.messages.length,
-    });
+    this.logger.info(
+      "session.wake",
+      {
+        channelId: wake.channelId,
+        channelName: this.activeChannelName,
+        source: wake.kind,
+        messages: wake.messages.length,
+        ...(wake.kind === "task" ? { taskId: wake.task.id, taskName: wake.task.name } : {}),
+      },
+      wake.kind === "task"
+        ? `Woke in ${this.channelLabel()} for task “${wake.task.name}”`
+        : `Woke in ${this.channelLabel()} after a ping (${String(wake.messages.length)} ${wake.messages.length === 1 ? "message" : "messages"})`,
+    );
     if (wake.kind === "task") void this.startTaskWake(wake);
     else this.scheduleDebounce();
     this.resetIdleTimer();
@@ -319,7 +339,11 @@ export class BotSession {
     await this.transport
       .sendMessage(wake.channelId, `> ⏰ Ben is starting task ${JSON.stringify(wake.task.name)}...`)
       .catch((error: unknown) => {
-        this.logger.warn("tasks.start_status_failed", { id: wake.task.id, error: String(error) });
+        this.logger.warn(
+          "tasks.start_status_failed",
+          { id: wake.task.id, taskName: wake.task.name, channelId: wake.channelId, error },
+          `Couldn’t announce task “${wake.task.name}”`,
+        );
       });
     this.taskStarting = false;
     if (this.activeTaskWake === wake && this.mode === "awake") this.scheduleDebounce();
@@ -402,24 +426,32 @@ export class BotSession {
     const includeFirstPromptContext = this.history.length === 0;
     const knownPeople =
       (await this.persistence.knownPeople?.listForPrompt().catch((error: unknown) => {
-        this.logger.warn("known_people.read_failed", { error: String(error) });
+        this.logger.warn("known_people.read_failed", { error }, "Couldn’t read known people");
         return {};
       })) ?? {};
     const recentConversationSummaries = includeFirstPromptContext
       ? ((await this.persistence.summaries?.list().catch((error: unknown) => {
-          this.logger.warn("conversation_summaries.read_failed", { error: String(error) });
+          this.logger.warn(
+            "conversation_summaries.read_failed",
+            { error },
+            "Couldn’t read conversation summaries",
+          );
           return [];
         })) ?? [])
       : [];
     const memories = includeFirstPromptContext
       ? ((await this.persistence.memories?.list().catch((error: unknown) => {
-          this.logger.warn("memories.read_failed", { error: String(error) });
+          this.logger.warn("memories.read_failed", { error }, "Couldn’t read memories");
           return [];
         })) ?? [])
       : [];
     const longTermMemory = includeFirstPromptContext
       ? await this.persistence.longTermMemory?.get().catch((error: unknown) => {
-          this.logger.warn("long_term_memory.read_failed", { error: String(error) });
+          this.logger.warn(
+            "long_term_memory.read_failed",
+            { error },
+            "Couldn’t read long-term memory",
+          );
           return undefined;
         })
       : undefined;
@@ -428,7 +460,7 @@ export class BotSession {
       this.persistence.customStatus === undefined
         ? undefined
         : ((await this.persistence.customStatus.get().catch((error: unknown) => {
-            this.logger.warn("custom_status.read_failed", { error: String(error) });
+            this.logger.warn("custom_status.read_failed", { error }, "Couldn’t read custom status");
             return undefined;
           })) ?? null);
     const prompt = buildUserPrompt({
@@ -464,9 +496,15 @@ export class BotSession {
   /** Refreshes the active channel's typing indicator during model work. */
   private startTyping(channelId: string | undefined): () => void {
     if (channelId === undefined) return () => undefined;
+    const channelName = this.activeChannelName;
+    const channelLabel = this.channelLabel();
     const send = (): void => {
       void this.transport.sendTyping(channelId).catch((error: unknown) => {
-        this.logger.warn("chat.typing_failed", { error: String(error) });
+        this.logger.warn(
+          "chat.typing_failed",
+          { channelId, channelName, error },
+          `Couldn’t show typing activity in ${channelLabel}`,
+        );
       });
     };
     send();
@@ -485,7 +523,11 @@ export class BotSession {
     if (outcome.type === "sleep") {
       if (this.activeTaskWake === undefined) {
         await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
-          this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
+          this.logger.warn(
+            "conversation_summaries.write_failed",
+            { error },
+            "Couldn’t save conversation summary",
+          );
         });
       }
       this.goToSleep("model");
@@ -496,20 +538,33 @@ export class BotSession {
       await this.deliverOptionalMessage(channelId, outcome.text);
       this.history = [...outcome.history];
     } else if (outcome.type === "wait") {
+      this.logger.info(
+        "conversation.wait",
+        { channelId, channelName: this.activeChannelName },
+        `Waiting for more messages in ${this.channelLabel()}`,
+      );
       this.history = [...outcome.history];
     } else {
       if (outcome.error instanceof ModelBudgetExceededError) {
-        this.logger.info("model.budget_exceeded_ignored", {
-          day: outcome.error.day,
-          costUsd: outcome.error.costUsd,
-          budgetUsd: outcome.error.budgetUsd,
-        });
+        this.logger.info(
+          "model.budget_exceeded_ignored",
+          {
+            day: outcome.error.day,
+            costUsd: outcome.error.costUsd,
+            budgetUsd: outcome.error.budgetUsd,
+          },
+          "Paused conversation after reaching the daily OpenAI budget",
+        );
         await this.deliverOptionalMessage(
           channelId,
           `Daily OpenAI budget reached (${formatUsd(outcome.error.costUsd)} / ${formatUsd(outcome.error.budgetUsd)}). I will respond again after the next daily reset.`,
         );
       } else {
-        this.logger.warn("conversation.failed", { error: String(outcome.error) });
+        this.logger.warn(
+          "conversation.failed",
+          { channelId, channelName: this.activeChannelName, error: outcome.error },
+          `Conversation failed in ${this.channelLabel()}`,
+        );
       }
     }
 
@@ -531,12 +586,20 @@ export class BotSession {
   ): Promise<void> {
     if (text === undefined) return;
     if (channelId === undefined) {
-      this.logger.warn("chat.send_failed", { error: "Missing channel ID" });
+      this.logger.warn("chat.send_failed", { error: "Missing channel ID" }, "Couldn’t send reply");
       return;
     }
-    await this.transport.sendMessage(channelId, text).catch((error: unknown) => {
-      this.logger.warn("chat.send_failed", { error: String(error) });
-    });
+    const channelName = this.activeChannelName;
+    const channelLabel = this.channelLabel();
+    try {
+      await this.transport.sendMessage(channelId, text);
+    } catch (error) {
+      this.logger.warn(
+        "chat.send_failed",
+        { channelId, channelName, error },
+        `Couldn’t send reply in ${channelLabel}`,
+      );
+    }
   }
 
   /** Resets the automatic sleep timer while the session is awake. */
@@ -549,9 +612,13 @@ export class BotSession {
   /** Clears conversation memory, then promotes the oldest queued channel. */
   private goToSleep(reason: "model" | "idle"): void {
     const completedTask = this.activeTaskWake;
+    const channelId = this.activeChannelId;
+    const channelName = this.activeChannelName;
+    const channelLabel = this.channelLabel();
     this.clearTimers();
     this.mode = "sleeping";
     this.activeChannelId = undefined;
+    this.activeChannelName = undefined;
     this.pendingBatch = [];
     this.pendingRecentContext = [];
     this.queuedDuringProcessing = [];
@@ -562,18 +629,34 @@ export class BotSession {
     this.taskStarting = false;
     this.typingByChannel.clear();
     this.presence.setPresence({ status: "idle" });
-    this.logger.info("session.sleep", { reason, queuedChannels: this.queuedWakes.length });
+    this.logger.info(
+      "session.sleep",
+      { reason, channelId, channelName, queuedChannels: this.queuedWakes.length },
+      `Sleeping after ${reason === "idle" ? "inactivity" : "finishing the conversation"} in ${channelLabel}`,
+    );
 
     if (completedTask !== undefined) {
       void completedTask.complete().catch((error: unknown) => {
-        this.logger.warn("tasks.completion_callback_failed", {
-          id: completedTask.task.id,
-          error: String(error),
-        });
+        this.logger.warn(
+          "tasks.completion_callback_failed",
+          {
+            id: completedTask.task.id,
+            taskName: completedTask.task.name,
+            error,
+          },
+          `Couldn’t finish task “${completedTask.task.name}”`,
+        );
       });
     }
 
     this.promoteQueuedWake();
+  }
+
+  /** Returns the best known readable active channel label. */
+  private channelLabel(): string {
+    return this.activeChannelName === undefined
+      ? (this.activeChannelId ?? "unknown channel")
+      : `#${this.activeChannelName}`;
   }
 
   /** Promotes the oldest queued ping into a fresh conversation. */
