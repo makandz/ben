@@ -260,3 +260,74 @@ function schedulerFor(
 async function delay(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
+
+test("stop drains a pending due read and prevents late enqueue or startup advancement", async () => {
+  const store = new SchedulerStore([task("once"), task("missed", "daily")]);
+  let releaseRead!: () => void;
+  let readStarted!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    readStarted = resolve;
+  });
+  const readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  const listDue = store.listDue.bind(store);
+  store.listDue = async (now) => {
+    readStarted();
+    await readGate;
+    return listDue(now);
+  };
+  const queued: Array<{ task: AutonomousTask; complete: TaskCompletion }> = [];
+  const scheduler = schedulerFor(store, queued, () => new Date("2026-08-22T12:00:00.000Z"));
+  const starting = scheduler.start();
+  await reading;
+  let stopped = false;
+  const stopping = scheduler.stop().then(() => {
+    stopped = true;
+  });
+  await delay(5);
+  assert.equal(stopped, false);
+  releaseRead();
+  await Promise.all([starting, stopping]);
+  assert.deepEqual(queued, []);
+  assert.deepEqual(store.advances, []);
+  assert.deepEqual(store.completions, []);
+  const state = JSON.stringify(store.tasks);
+  await delay(20);
+  assert.equal(JSON.stringify(store.tasks), state);
+});
+
+test("stop drains an already-started recurring advancement but starts no later mutation", async () => {
+  const store = new SchedulerStore([task("first", "daily"), task("second", "weekly")]);
+  const advance = store.advanceRecurring.bind(store);
+  let releaseWrite!: () => void;
+  let writeStarted!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    writeStarted = resolve;
+  });
+  const writeGate = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  store.advanceRecurring = async (...argumentsValue) => {
+    writeStarted();
+    await writeGate;
+    return advance(...argumentsValue);
+  };
+  const queued: Array<{ task: AutonomousTask; complete: TaskCompletion }> = [];
+  const scheduler = schedulerFor(store, queued, () => new Date("2026-08-22T12:00:00.000Z"));
+  const starting = scheduler.start();
+  await writing;
+  let stopped = false;
+  const stopping = scheduler.stop().then(() => {
+    stopped = true;
+  });
+  await delay(5);
+  assert.equal(stopped, false);
+  releaseWrite();
+  await Promise.all([starting, stopping]);
+  assert.deepEqual(store.advances, ["first"]);
+  assert.deepEqual(queued, []);
+  const state = JSON.stringify(store.tasks);
+  await delay(20);
+  assert.equal(JSON.stringify(store.tasks), state);
+});

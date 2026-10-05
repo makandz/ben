@@ -75,6 +75,8 @@ export type ApplicationDependencies = {
   observer?: ExecutionObserver;
   /** Whether readiness starts background task and consolidation timers. Defaults to true. */
   startSchedulers?: boolean;
+  /** Opts into tasks alone when background schedulers are disabled. */
+  startTaskScheduler?: boolean;
 };
 
 /**
@@ -253,8 +255,9 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         } catch (error) {
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
-        if (dependencies.startSchedulers !== false) {
+        if (dependencies.startSchedulers !== false || dependencies.startTaskScheduler === true)
           void taskScheduler.start();
+        if (dependencies.startSchedulers !== false) {
           void memoryConsolidationScheduler.start();
         }
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
@@ -291,9 +294,8 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       await adapter.start(env.discordToken);
     },
     async stop() {
-      taskScheduler.stop();
       memoryConsolidationScheduler.stop();
-      await session.stop();
+      await Promise.all([taskScheduler.stop(), session.stop()]);
       await adapter.stop();
     },
   };

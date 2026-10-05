@@ -384,6 +384,11 @@ export class BotSession {
     const work = this.processPendingBatch().catch((error: unknown) => {
       this.logger.warn("conversation.failed", { error: String(error) });
     });
+    this.trackProcessing(work);
+  }
+
+  /** Keeps both model turns and idle completion persistence owned until shutdown drains them. */
+  private trackProcessing(work: Promise<void>): void {
     this.processing.add(work);
     void work.then(
       () => this.processing.delete(work),
@@ -606,7 +611,7 @@ export class BotSession {
       return;
     if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
-      void this.goToSleep("idle");
+      this.trackProcessing(this.goToSleep("idle"));
     }, this.timings.idleSleepMs);
   }
 

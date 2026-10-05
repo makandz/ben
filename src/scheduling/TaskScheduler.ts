@@ -28,6 +28,8 @@ export class TaskScheduler {
   private readonly pendingStartupAdvances = new Map<string, AutonomousTask>();
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  private stopped = false;
+  private activePass: Promise<void> | undefined;
   private startedAt: Date | undefined;
 
   /**
@@ -63,31 +65,48 @@ export class TaskScheduler {
    */
   async start(): Promise<void> {
     if (this.timer !== undefined) return;
+    this.stopped = false;
     this.startedAt = this.now();
     this.timer = setInterval(() => void this.runDueTasks("interval"), this.intervalMs);
     this.logger.info("tasks.scheduler_started", { intervalMs: this.intervalMs });
     await this.runDueTasks("startup");
   }
 
-  /** Stops polling while leaving persisted tasks available after restart. */
-  stop(): void {
+  /**
+   * Stops polling and drains the current due-task pass without starting further work.
+   * Occurrence completion callbacks remain owned by the conversation that invokes them.
+   * @returns Resolves after the pass's already-started store operations and diagnostics finish.
+   */
+  async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer !== undefined) clearInterval(this.timer);
     this.timer = undefined;
+    await this.activePass;
   }
 
   /** Runs one non-overlapping completion retry and due-task pass. */
-  private async runDueTasks(reason: SchedulerReason): Promise<void> {
+  private runDueTasks(reason: SchedulerReason): Promise<void> {
+    if (this.isStopped()) return Promise.resolve();
     if (this.running) {
       this.logger.debug("tasks.skipped_running", { reason });
-      return;
+      return Promise.resolve();
     }
     this.running = true;
+    this.activePass = this.performDueTasks(reason);
+    return this.activePass;
+  }
+
+  /** Finishes an owned pass, checking stop requests at every asynchronous boundary. */
+  private async performDueTasks(reason: SchedulerReason): Promise<void> {
     try {
       await this.retryPendingCompletions();
+      if (this.isStopped()) return;
       await this.retryPendingStartupAdvances();
+      if (this.isStopped()) return;
       const now = this.now();
       const tasks = await this.store.listDue(now);
       for (const task of tasks) {
+        if (this.isStopped()) return;
         if (this.claimed.has(task.id)) continue;
         if (reason === "startup" && task.repeat !== "none" && this.wasMissed(task)) {
           await this.skipMissedOccurrence(task, now);
@@ -113,6 +132,7 @@ export class TaskScheduler {
   /** Retries startup advancement without accidentally enqueueing a previously missed occurrence. */
   private async retryPendingStartupAdvances(): Promise<void> {
     for (const task of this.pendingStartupAdvances.values()) {
+      if (this.isStopped()) return;
       await this.tryAdvanceMissedOccurrence(task, this.now());
     }
   }
@@ -161,7 +181,10 @@ export class TaskScheduler {
 
   /** Retries durable completion without enqueueing already completed conversational work. */
   private async retryPendingCompletions(): Promise<void> {
-    for (const task of this.pendingCompletions.values()) await this.tryComplete(task);
+    for (const task of this.pendingCompletions.values()) {
+      if (this.isStopped()) return;
+      await this.tryComplete(task);
+    }
   }
 
   /** Applies one version-checked completion and releases its claim only after a contained result. */
@@ -192,6 +215,11 @@ export class TaskScheduler {
     } catch (error) {
       this.logger.warn("tasks.completion_failed", { id: task.id, error: String(error) });
     }
+  }
+
+  /** Reads the current stop request again after asynchronous store operations. */
+  private isStopped(): boolean {
+    return this.stopped;
   }
 
   /** Returns whether a recurring due occurrence predates this scheduler process. */

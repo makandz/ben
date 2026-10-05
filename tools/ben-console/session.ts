@@ -72,14 +72,13 @@ async function canonicalPath(path: string): Promise<string> {
 }
 
 /**
- * Starts one isolated application session with live ordered artifacts.
- * @param options - Session filesystem root and owned output/model boundaries.
- * @param settings - Synthetic directory, timing, spending and seed settings.
- * @returns Running session controls with drain-before-stop semantics.
- * @throws When the root overlaps live logs, credentials are absent, or setup fails.
+ * Checks artifact roots before any runner or session writes files.
+ * @param path - Proposed artifact root.
+ * @returns Resolves when the root does not overlap live logs.
+ * @throws When the root overlaps the production state boundary.
  */
-export async function startSession(options: SessionOptions, settings: StartOptions = {}) {
-  const root = await canonicalPath(options.root);
+export async function assertConsoleRoot(path: string): Promise<void> {
+  const root = await canonicalPath(path);
   const production = await canonicalPath(resolve("logs"));
   const inside = (parent: string, child: string) => {
     const path = relative(parent, child);
@@ -87,6 +86,18 @@ export async function startSession(options: SessionOptions, settings: StartOptio
   };
   if (inside(production, root) || inside(root, production))
     throw new Error("Console root must not overlap live logs");
+}
+
+/**
+ * Starts one isolated application session with live ordered artifacts.
+ * @param options - Session filesystem root and owned output/model boundaries.
+ * @param settings - Synthetic directory, timing, spending and seed settings.
+ * @returns Running session controls with drain-before-stop semantics.
+ * @throws When the root overlaps live logs, credentials are absent, or setup fails.
+ */
+export async function startSession(options: SessionOptions, settings: StartOptions = {}) {
+  await assertConsoleRoot(options.root);
+  const root = await canonicalPath(options.root);
   if (!options.model && !options.apiKey)
     throw new Error("Missing OPENAI_API_KEY for real model session");
   await mkdir(root, { recursive: true });
@@ -148,11 +159,13 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       ]),
     ),
   );
-  const [base = "", messaging = "", consolidation = ""] = await Promise.all(
+  const [defaultBase = "", defaultMessaging = "", consolidation = ""] = await Promise.all(
     ["base", "messaging", "memory-consolidation"].map((name) =>
       readFile(new URL(`../../src/prompts/${name}.md`, import.meta.url), "utf8"),
     ),
   );
+  const base = settings.prompts?.base ?? defaultBase;
+  const messaging = settings.prompts?.messaging ?? defaultMessaging;
   const prompts = { base, messaging, "memory-consolidation": consolidation };
   const instructions = composeInstructions(base, messaging);
   const consolidationInstructions = composeInstructions(base, consolidation);
@@ -176,6 +189,9 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       dailyBudgetUsd: budget,
       timings,
       schedulers: false,
+      taskScheduler: settings.taskScheduler ?? false,
+      seed: settings.seed ?? {},
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       users: settings.users ?? ["makan", "alex"],
       channels: settings.channels ?? ["general", "games", "ben-log"],
       timeoutMs: settings.timeoutMs ?? 30000,
@@ -283,6 +299,7 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     sessionTimings: timings,
     observer,
     startSchedulers: false,
+    startTaskScheduler: settings.taskScheduler ?? false,
   });
   await application.start();
   record({
