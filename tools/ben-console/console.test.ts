@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, readFile, rm, symlink, mkdir, readdir, access } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  mkdir,
+  readdir,
+  access,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -27,12 +36,20 @@ async function fixture(model: Model) {
   const root = await mkdtemp(join(tmpdir(), "ben-console-test-"));
   const events: Record<string, unknown>[] = [];
   const worker = createWorker({
-    root,
+    root: join(root, "artifacts"),
+    devStateDirectory: join(root, "dev-state"),
     model,
     timings: { messageDebounceMs: 0 },
     emit: (event) => events.push(event),
   });
-  const command = (body: unknown) => worker.handle(JSON.stringify(body));
+  const command = (body: unknown) =>
+    worker.handle(
+      JSON.stringify(
+        typeof body === "object" && body !== null && "op" in body && body.op === "start"
+          ? { fresh: true, ...body }
+          : body,
+      ),
+    );
   const ready = () => {
     const event = events.find((event) => event.type === "ready");
     assert.ok(event);
@@ -46,6 +63,8 @@ async function fixture(model: Model) {
     ready,
     async cleanup() {
       await worker.shutdown();
+      for (const event of events.filter((event) => event.type === "ready" && event.fresh))
+        await rm(String(event.stateDirectory), { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     },
   };
@@ -102,7 +121,7 @@ test("stdin accepts fragmented JSONL and CRLF with machine-only stdout", async (
 test("personas and multi-channel batches use real prompts, tools and ordered artifacts", async () => {
   const model = new ScriptedModel([
     turn("message", {
-      text: ["hello @alex", "second <@!9000> <#2001>"],
+      text: ["hello @alex\nnext line", "second <@!9000> <#2001>"],
       reply_to: "10001",
       next_action: "sleep",
       sleep_summary: "general summary",
@@ -145,36 +164,48 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
     assert.match(await readFile(String(ready.logPath), "utf8"), /Ben: second/);
     const transcript = await readFile(String(ready.transcriptPath), "utf8");
     assert.deepEqual(
-      [...transcript.matchAll(/\*\*([^\n]+)\*\*\n\n([\s\S]*?)(?=\n\n(?:\*\*|### )|$)/g)].map(
-        (match) => [match[1], match[2]?.trimEnd()],
-      ),
+      [...transcript.matchAll(/^- \*\*([^\n]+):\*\* (.*)$/gm)]
+        .filter(
+          (match) =>
+            !match[1]?.startsWith("tool_") &&
+            !match[1]?.startsWith("session_") &&
+            match[1] !== "turn_completed",
+        )
+        .map((match) => [match[1], match[2]]),
       [
         ["makan · #general", "@Ben hello #games"],
         ["alex · #general", "hi"],
         ["alex · #games", "@Ben game night?"],
-        ["Ben · #general", "hello @alex"],
+        ["Ben · #general", "hello @alex\\nnext line"],
         ["Ben · #general", "second @Ben #games"],
       ],
     );
     const toolEvents = [
-      ...transcript.matchAll(/### (tool_call|tool_result)\n\n```json\n([\s\S]*?)\n```/g),
+      ...transcript.matchAll(/^- \*\*(tool_call|tool_result) · ([^\n]+):\*\* (.*)$/gm),
     ].map((match) => ({
       type: match[1],
-      ...(JSON.parse(match[2] ?? "") as Record<string, unknown>),
+      name: match[2],
+      payload: JSON.parse(match[3] ?? "") as unknown,
     }));
     assert.deepEqual(
       toolEvents,
       trace
         .filter((event) => event.type === "tool_call" || event.type === "tool_result")
-        .map((event) => ({
-          type: event.type,
-          call: event.call,
-          ...(event.type === "tool_result" ? { execution: event.execution } : {}),
-        })),
+        .map((event) => {
+          const call = event.call as { name: string; arguments: unknown };
+          return {
+            type: event.type,
+            name: call.name,
+            payload: event.type === "tool_call" ? call.arguments : event.execution,
+          };
+        }),
     );
-    assert.ok(transcript.indexOf("### tool_call") < transcript.indexOf("**Ben · #general**"));
-    assert.ok(transcript.indexOf("second @Ben #games") < transcript.indexOf("### tool_result"));
-    assert.match(transcript, /### session_wake[\s\S]*### session_sleep[\s\S]*### turn_completed/);
+    assert.ok(transcript.indexOf("tool_call · message") < transcript.indexOf("**Ben · #general:"));
+    assert.ok(
+      transcript.indexOf("second @Ben #games") < transcript.indexOf("tool_result · message"),
+    );
+    assert.match(transcript, /session_wake[\s\S]*session_sleep[\s\S]*turn_completed/);
+    assert.doesNotMatch(transcript, /```|"callId"/);
     assert.doesNotMatch(transcript, /model_request|model_turn|diagnostic|"history"|"instructions"/);
     assert.equal(
       f.events.find((event) => event.type === "result" && event.op === "start")?.transcriptPath,
@@ -195,11 +226,15 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
       JSON.stringify(f.events),
       /model_request|model_turn|"history"|"instructions"/,
     );
-    const statusSession = await startSession({
-      root: f.root,
-      model: new ScriptedModel([]),
-      emit() {},
-    });
+    const statusSession = await startSession(
+      {
+        root: join(f.root, "artifacts"),
+        devStateDirectory: join(f.root, "dev-state"),
+        model: new ScriptedModel([]),
+        emit() {},
+      },
+      { fresh: true },
+    );
     try {
       await statusSession.local.gateway.sendMessage("2002", "operational status", {
         allowUserMentions: false,
@@ -209,15 +244,24 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
       assert.equal(await readFile(statusSession.transcriptPath, "utf8"), "# Conversation\n\n");
     } finally {
       await statusSession.stop();
+      await rm(statusSession.stateDirectory, { recursive: true, force: true });
     }
-    assert.match(await readFile(statusSession.transcriptPath, "utf8"), /### session_stopped/);
+    assert.match(await readFile(statusSession.transcriptPath, "utf8"), /session_stopped/);
   } finally {
     await f.cleanup();
   }
 });
 
 test("seed and usage are isolated, unpinged context stays asleep, inspect returns local state", async () => {
-  const model = new ScriptedModel([{ items: [{ type: "reasoning" }, ...turn("wait").items] }]);
+  const model = new ScriptedModel([
+    {
+      items: [
+        { type: "reasoning" },
+        ...turn("remember", { action: "add", id: null, memory: "generic tool transcript" }).items,
+      ],
+    },
+    turn("wait"),
+  ]);
   const a = await fixture(model);
   const b = await fixture(new ScriptedModel([]));
   try {
@@ -241,8 +285,19 @@ test("seed and usage are isolated, unpinged context stays asleep, inspect return
     await a.command({ op: "message", content: "hi", ping: true });
     await until(() => a.events.some((event) => event.type === "turn_completed"));
     const transcript = await readFile(String(a.ready().transcriptPath), "utf8");
-    assert.match(transcript, /"name": "wait"[\s\S]*"outcome": \{\s*"type": "wait"/);
+    assert.match(transcript, /tool_call · wait[\s\S]*"outcome":\{"type":"wait"/);
     assert.doesNotMatch(transcript, /"history"/);
+    assert.match(
+      transcript,
+      /tool_call · remember:\*\* \{"action":"add","id":null,"memory":"generic tool transcript"\}/,
+    );
+    assert.match(transcript, /tool_result · remember:\*\* \{"type":"continue","result":/);
+    assert.ok(
+      transcript
+        .split("\n")
+        .filter((line) => line.length > 0 && !line.startsWith("# "))
+        .every((line) => line.startsWith("- ")),
+    );
     for (const path of [a.ready().logPath, a.ready().tracePath, a.ready().transcriptPath]) {
       assert.doesNotMatch(await readFile(String(path), "utf8"), /"history"|"reasoning"/);
     }
@@ -254,7 +309,7 @@ test("seed and usage are isolated, unpinged context stays asleep, inspect return
     ])
       assert.ok(JSON.stringify(model.requests).includes(expected));
     await new OpenAIUsageStore(
-      join(String(a.ready().stateDirectory), "openai-usage"),
+      String(a.ready().usageDirectory),
       OPENAI_CONVERSATION_MODEL,
       1,
     ).record(OPENAI_CONVERSATION_MODEL, {
@@ -361,6 +416,134 @@ test("shared-root symlinks and nonexistent ancestors are rejected before mkdir",
     await assert.rejects(access(production), { code: "ENOENT" });
   } finally {
     process.chdir(previousDirectory);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("shared dev state survives console processes, fresh state is empty, seeds cannot overwrite it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ben-console-reuse-"));
+  const devStateDirectory = join(root, "logs");
+  const artifacts = join(root, "artifacts");
+  const usage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 10, totalTokens: 110 };
+  try {
+    await mkdir(devStateDirectory);
+    await writeFile(
+      join(devStateDirectory, "custom-status.json"),
+      JSON.stringify({ version: 1, status: "existing status" }),
+    );
+    await writeFile(join(devStateDirectory, "runtime.log"), "unrelated diagnostics");
+    await mkdir(join(devStateDirectory, "diagnostics"));
+    await mkdir(join(devStateDirectory, "memories.json"));
+    const devUsage = new OpenAIUsageStore(
+      join(devStateDirectory, "openai-usage"),
+      OPENAI_CONVERSATION_MODEL,
+      1,
+    );
+    await devUsage.record(OPENAI_CONVERSATION_MODEL, usage);
+    const usageBefore = await devUsage.getTodaySummary();
+    await assert.rejects(
+      startSession(
+        { root: artifacts, devStateDirectory, model: new ScriptedModel([]), emit() {} },
+        { seed: { "custom-status.json": { version: 1, status: "overwrite" } } },
+      ),
+      /Seeds require explicit fresh/,
+    );
+    await assert.rejects(access(artifacts), { code: "ENOENT" });
+    assert.match(
+      await readFile(join(devStateDirectory, "custom-status.json"), "utf8"),
+      /existing status/,
+    );
+    // A recognized filename that is a directory must also be excluded from inspection.
+    await rm(join(devStateDirectory, "memories.json"), { recursive: true });
+    await mkdir(join(devStateDirectory, "memory-consolidation.json"));
+    const source = `
+      import { startSession } from "./tools/ben-console/session.ts";
+      import { ScriptedModel } from "./src/testing/ScriptedModel.ts";
+      const events = [];
+      const model = new ScriptedModel([{ items: [{ type: "tool_call", callId: "sleep", name: "sleep", arguments: { summary: "persisted across processes" } }] }]);
+      const session = await startSession({ root: process.argv[1], devStateDirectory: process.argv[2], model, emit: event => events.push(event), timings: { messageDebounceMs: 0 } });
+      if (process.argv[3] === "write") {
+        session.message([{ content: "@Ben hello" }]);
+        for (let i = 0; !events.some(event => event.type === "turn_completed"); i++) {
+          if (i === 200) throw new Error("event deadline exceeded");
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+      }
+      await session.stop();
+      console.log(JSON.stringify(await session.inspect()));
+    `;
+    const run = async (mode: string) => {
+      const child = spawn(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "-e",
+          source,
+          artifacts,
+          devStateDirectory,
+          mode,
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let output = "";
+      let errors = "";
+      child.stdout.on("data", (chunk) => {
+        output += String(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        errors += String(chunk);
+      });
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      });
+      assert.equal(code, 0, errors);
+      return JSON.parse(output) as {
+        directory: string;
+        stateDirectory: string;
+        stateMode: string;
+        fresh: boolean;
+        state: Record<string, unknown>;
+        messages: unknown[];
+        usage: { costUsd: number };
+      };
+    };
+    const first = await run("write");
+    const second = await run("read");
+    assert.notEqual(first.directory, second.directory);
+    assert.equal(second.stateDirectory, devStateDirectory);
+    assert.equal(second.stateMode, "shared");
+    assert.equal(second.fresh, false);
+    assert.deepEqual(first.state, second.state);
+    assert.match(
+      JSON.stringify(second.state["conversation-summaries.json"]),
+      /persisted across processes/,
+    );
+    assert.deepEqual(Object.keys(second.state).sort(), [
+      "conversation-summaries.json",
+      "custom-status.json",
+    ]);
+    assert.deepEqual(second.messages, []);
+    assert.equal(second.usage.costUsd, 0);
+    assert.deepEqual(await devUsage.getTodaySummary(), usageBefore);
+    const fresh = await startSession(
+      { root: artifacts, devStateDirectory, model: new ScriptedModel([]), emit() {} },
+      { fresh: true },
+    );
+    try {
+      assert.equal(fresh.stateMode, "fresh");
+      assert.equal(fresh.fresh, true);
+      assert.equal(join(fresh.stateDirectory, ".."), tmpdir());
+      assert.deepEqual((await fresh.inspect()).state, {});
+      assert.deepEqual(await readdir(fresh.stateDirectory), []);
+      assert.notEqual(fresh.stateDirectory, devStateDirectory);
+    } finally {
+      await fresh.stop();
+      await rm(fresh.stateDirectory, { recursive: true, force: true });
+    }
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

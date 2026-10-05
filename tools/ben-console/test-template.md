@@ -18,4 +18,4 @@ What should Ben do, and why?
 
 ## Observations
 
-What happened? Link relevant session logs, tool traces, or prompt snapshots.
+What happened? Link relevant session logs, tool traces, or the compact conversation transcript.

@@ -9,6 +9,7 @@ import {
   lstat,
   readlink,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve, relative, dirname, basename, isAbsolute, sep } from "node:path";
 import type { ExecutionEvent } from "../../src/app/ExecutionObserver.js";
 import { createApplication } from "../../src/app/createApplication.js";
@@ -24,6 +25,8 @@ import type { Command } from "./protocol.js";
 export type StartOptions = Omit<Extract<Command, { op: "start" }>, "op">;
 export type SessionOptions = {
   root: string;
+  /** Overrides shared dev state for offline tests; defaults to logs in the current checkout. */
+  devStateDirectory?: string;
   emit: (event: Record<string, unknown>) => void;
   model?: Model;
   apiKey?: string;
@@ -66,15 +69,18 @@ async function canonicalPath(path: string): Promise<string> {
 }
 
 /**
- * Starts one isolated application session with live ordered artifacts.
- * @param options - Session filesystem root and owned output/model boundaries.
- * @param settings - Synthetic directory, spending and seed settings.
+ * Starts an application session with shared dev state or explicitly fresh temporary state.
+ * @param options - Artifact root, dev state path and owned output/model boundaries.
+ * @param settings - Synthetic users/channels, spending, fresh state and seed settings.
  * @returns Running session controls with drain-before-stop semantics.
- * @throws When the root overlaps live logs, credentials are absent, or setup fails.
+ * @throws When artifacts overlap dev state, seeds lack fresh mode, credentials are absent, or setup fails.
  */
 export async function startSession(options: SessionOptions, settings: StartOptions = {}) {
+  if (settings.seed !== undefined && settings.fresh !== true)
+    throw new Error("Seeds require explicit fresh: true");
   const root = await canonicalPath(options.root);
-  const production = await canonicalPath(resolve("logs"));
+  const devStateDirectory = resolve(options.devStateDirectory ?? "logs");
+  const production = await canonicalPath(devStateDirectory);
   const inside = (parent: string, child: string) => {
     const path = relative(parent, child);
     return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
@@ -85,8 +91,13 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     throw new Error("Missing OPENAI_API_KEY for real model session");
   await mkdir(root, { recursive: true });
   const directory = await mkdtemp(join(root, "session-"));
-  const stateDirectory = join(directory, "state");
-  await mkdir(stateDirectory);
+  const fresh = settings.fresh === true;
+  const stateMode = fresh ? "fresh" : "shared";
+  const stateDirectory = fresh
+    ? await mkdtemp(join(tmpdir(), "ben-console-state-"))
+    : devStateDirectory;
+  await mkdir(stateDirectory, { recursive: true });
+  const usageDirectory = join(directory, "openai-usage");
   const secrets = [options.apiKey ?? ""];
   const tracePath = join(directory, "trace.jsonl");
   const logPath = join(directory, "session.log");
@@ -143,7 +154,8 @@ export async function startSession(options: SessionOptions, settings: StartOptio
           return user ? `@${user.username}` : mention;
         },
       );
-      appendFileSync(transcriptPath, `**${speaker} · #${channelName}**\n\n${content}\n\n`);
+      const line = `- **${speaker} · #${channelName}:** ${content}`.replace(/\r?\n|\r/g, "\\n");
+      appendFileSync(transcriptPath, `${line}\n`);
     } else if (
       [
         "tool_call",
@@ -172,10 +184,22 @@ export async function startSession(options: SessionOptions, settings: StartOptio
         const channel = local.channels.find((item) => item.id === details.channelId);
         if (channel?.name) details.channelId = `#${channel.name}`;
       }
-      appendFileSync(
-        transcriptPath,
-        `### ${String(event.type)}\n\n\`\`\`json\n${JSON.stringify(details, null, 2)}\n\`\`\`\n\n`,
+      const call = event.call as { name: string; arguments: unknown } | undefined;
+      const label = call ? `${String(event.type)} · ${call.name}` : String(event.type);
+      const payload =
+        event.type === "tool_call"
+          ? call?.arguments
+          : event.type === "tool_result"
+            ? event.execution
+            : event.type === "tool_error"
+              ? event.error
+              : details;
+      // Detailed stacks and repeated call metadata remain available in the raw trace.
+      const compact = JSON.stringify(payload, (key, item: unknown) =>
+        String(event.type).endsWith("_error") && key === "stack" ? undefined : item,
       );
+      const line = `- **${label}:** ${compact}`.replace(/\r?\n|\r/g, "\\n");
+      appendFileSync(transcriptPath, `${line}\n`);
     }
     if (publish) options.emit(event);
     return event;
@@ -213,6 +237,10 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       maxOutputTokens: 512,
       reasoningEffort: "high",
       dailyBudgetUsd: budget,
+      stateDirectory,
+      stateMode,
+      fresh,
+      usageDirectory,
       timings,
       schedulers: false,
       users: settings.users ?? ["makan", "alex"],
@@ -226,7 +254,7 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     );
   const local = createGateway(record, settings);
   const usageStore = new OpenAIUsageStore(
-    join(stateDirectory, "openai-usage"),
+    usageDirectory,
     OPENAI_CONVERSATION_MODEL,
     budget,
     logger,
@@ -272,6 +300,9 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     tracePath,
     transcriptPath,
     stateDirectory,
+    stateMode,
+    fresh,
+    usageDirectory,
     users: local.users,
     channels: local.channels,
   });
@@ -280,6 +311,10 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     logPath,
     tracePath,
     transcriptPath,
+    stateDirectory,
+    stateMode,
+    fresh,
+    usageDirectory,
     local,
     message(inputs: InputMessage[]) {
       if (stopping) throw new Error("Session is stopping");
@@ -288,8 +323,18 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     },
     async inspect() {
       const state: Record<string, unknown> = {};
-      for (const name of await readdir(stateDirectory)) {
-        if (name === "openai-usage") continue;
+      const stateFiles = new Set([
+        "conversation-summaries.json",
+        "known-people.json",
+        "tasks.json",
+        "custom-status.json",
+        "memories.json",
+        "long-term-memory.txt",
+        "memory-consolidation.json",
+      ]);
+      for (const entry of await readdir(stateDirectory, { withFileTypes: true })) {
+        if (!entry.isFile() || !stateFiles.has(entry.name)) continue;
+        const name = entry.name;
         const content = await readFile(join(stateDirectory, name), "utf8");
         try {
           state[name] = JSON.parse(content);
@@ -302,6 +347,10 @@ export async function startSession(options: SessionOptions, settings: StartOptio
         logPath,
         tracePath,
         transcriptPath,
+        stateDirectory,
+        stateMode,
+        fresh,
+        usageDirectory,
         users: local.users,
         channels: local.channels,
         messages: local.messages,

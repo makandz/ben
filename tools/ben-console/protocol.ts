@@ -12,6 +12,7 @@ const command = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("start"),
+      fresh: z.boolean().optional(),
       users: z.array(z.string().min(1)).min(1).optional(),
       channels: z.array(z.string().min(1)).min(1).optional(),
       dailyBudgetUsd: z.number().nonnegative().optional(),

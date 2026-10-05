@@ -8,7 +8,7 @@ import type { SessionOptions } from "./session.js";
 
 /**
  * Creates a persistent protocol dispatcher; model work never blocks subsequent input.
- * @param options - Isolated session root, event output and optional deterministic model.
+ * @param options - Artifact root, dev state path, event output and optional deterministic model.
  * @returns Input-line and shutdown controls.
  */
 export function createWorker(options: SessionOptions) {
@@ -45,6 +45,10 @@ export function createWorker(options: SessionOptions) {
               logPath: session.logPath,
               tracePath: session.tracePath,
               transcriptPath: session.transcriptPath,
+              stateDirectory: session.stateDirectory,
+              stateMode: session.stateMode,
+              fresh: session.fresh,
+              usageDirectory: session.usageDirectory,
             });
           }
         });
