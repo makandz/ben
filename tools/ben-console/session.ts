@@ -13,7 +13,7 @@ import { join, resolve, relative, dirname, basename, isAbsolute, sep } from "nod
 import type { ExecutionEvent } from "../../src/app/ExecutionObserver.js";
 import { createApplication } from "../../src/app/createApplication.js";
 import { Logger } from "../../src/logger.js";
-import type { Model, ModelRequest } from "../../src/model/Model.js";
+import type { Model } from "../../src/model/Model.js";
 import { OpenAIModel, OPENAI_CONVERSATION_MODEL } from "../../src/model/openai/OpenAIModel.js";
 import { OpenAIUsageStore } from "../../src/model/openai/OpenAIUsageStore.js";
 import { composeInstructions } from "../../src/prompting/promptLayers.js";
@@ -115,13 +115,6 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       };
       detail = `#${message.channel.name} ${message.author.username} (${message.id}): ${message.content}`;
     }
-    if (event.type === "model_request") {
-      const request = value.request as ModelRequest;
-      const lastUser = [...request.history]
-        .reverse()
-        .find((item) => item.type === "message" && item.role === "user");
-      detail = `tools=${String(request.tools.length)} history=${String(request.history.length)}\n${lastUser?.type === "message" ? lastUser.text : ""}`;
-    }
     for (const secret of secrets) if (secret) detail = detail.replaceAll(secret, "[REDACTED]");
     appendFileSync(
       logPath,
@@ -204,7 +197,6 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       readFile(new URL(`../../src/prompts/${name}.md`, import.meta.url), "utf8"),
     ),
   );
-  const prompts = { base, messaging, "memory-consolidation": consolidation };
   const instructions = composeInstructions(base, messaging);
   const consolidationInstructions = composeInstructions(base, consolidation);
   const budget = settings.dailyBudgetUsd ?? 1;
@@ -214,10 +206,6 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     idleSleepMs: options.timings?.idleSleepMs ?? 300000,
     typingRefreshMs: 8000,
   };
-  await writeFile(
-    join(directory, "prompts.json"),
-    serialize({ ...prompts, instructions, consolidationInstructions }),
-  );
   await writeFile(
     join(directory, "config.json"),
     serialize({
@@ -247,6 +235,13 @@ export async function startSession(options: SessionOptions, settings: StartOptio
   let shutdownWork: Promise<void> | undefined;
   let stopping = false;
   const observer = (event: ExecutionEvent) => {
+    if (event.type === "model_request" || event.type === "model_turn") return;
+    if (event.type === "turn_completed" && "history" in event.outcome) {
+      const { history, ...outcome } = event.outcome;
+      void history;
+      record({ ...event, outcome });
+      return;
+    }
     record({ ...event });
   };
   const application = createApplication({

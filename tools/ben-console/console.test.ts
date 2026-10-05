@@ -185,9 +185,15 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
       (f.events.at(-1)?.state as { transcriptPath: string }).transcriptPath,
       ready.transcriptPath,
     );
-    assert.match(
-      await readFile(join(String(ready.session), "prompts.json"), "utf8"),
-      /instructions/,
+    assert.ok(!(await readdir(String(ready.session))).includes("prompts.json"));
+    for (const path of [ready.logPath, ready.tracePath, ready.transcriptPath]) {
+      const content = await readFile(String(path), "utf8");
+      assert.doesNotMatch(content, /model_request|model_turn|"history"|"instructions"/);
+      assert.ok(!content.includes(request.instructions));
+    }
+    assert.doesNotMatch(
+      JSON.stringify(f.events),
+      /model_request|model_turn|"history"|"instructions"/,
     );
     const statusSession = await startSession({
       root: f.root,
@@ -211,7 +217,7 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
 });
 
 test("seed and usage are isolated, unpinged context stays asleep, inspect returns local state", async () => {
-  const model = new ScriptedModel([turn("wait")]);
+  const model = new ScriptedModel([{ items: [{ type: "reasoning" }, ...turn("wait").items] }]);
   const a = await fixture(model);
   const b = await fixture(new ScriptedModel([]));
   try {
@@ -237,6 +243,10 @@ test("seed and usage are isolated, unpinged context stays asleep, inspect return
     const transcript = await readFile(String(a.ready().transcriptPath), "utf8");
     assert.match(transcript, /"name": "wait"[\s\S]*"outcome": \{\s*"type": "wait"/);
     assert.doesNotMatch(transcript, /"history"/);
+    for (const path of [a.ready().logPath, a.ready().tracePath, a.ready().transcriptPath]) {
+      assert.doesNotMatch(await readFile(String(path), "utf8"), /"history"|"reasoning"/);
+    }
+    assert.doesNotMatch(JSON.stringify(a.events), /"history"|"reasoning"/);
     for (const expected of [
       "private test memory",
       "private test status",
@@ -289,7 +299,7 @@ test("input remains available during processing; stop guards lifecycle and drain
     assert.equal(f.events.at(-1)?.type, "error");
     await starting;
     await f.command({ op: "message", content: "@Ben first" });
-    await until(() => f.events.some((event) => event.type === "model_request"));
+    await until(() => prompts.length === 1);
     await f.command({ op: "message", user: "alex", content: "follow-up while processing" });
     assert.equal(f.events.at(-1)?.type, "result");
     release(turn("wait"));
