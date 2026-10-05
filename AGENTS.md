@@ -9,6 +9,7 @@ Ben is an AI member of a private Discord server with friends. He should feel lik
 
 ## Console
 
+- For requests to try Ben's conversational behavior or test prompt changes, read [.agents/skills/ben-prompt-testing/SKILL.md](.agents/skills/ben-prompt-testing/SKILL.md).
 - The console defaults to persisted dev state in `logs/`; transcripts and session usage stay in `.ben-console/`. Use only one Ben process per shared state directory.
 - Stop dev Ben before console takeover only with session authorization or when needed under the development instructions above. Request `fresh: true` explicitly for empty OS temporary state; saved files do not restore an active in-memory conversation.
 - Automated offline console tests must use temporary state, never the shared `logs/` state.
