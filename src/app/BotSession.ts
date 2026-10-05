@@ -1,3 +1,4 @@
+import { observeExecution, type ExecutionObserver } from "./ExecutionObserver.js";
 import type { Logger } from "../logger.js";
 import { ModelBudgetExceededError } from "../model/Model.js";
 import { buildUserPrompt, type KnownPeople, type MemoryItem } from "../prompting/formatMessages.js";
@@ -85,6 +86,7 @@ const productionTimings: SessionTimings = {
 /** Owns Ben's single active Discord conversation and its wake/sleep lifecycle. */
 export class BotSession {
   private readonly timings: SessionTimings;
+  private stopped = false;
   private mode: SessionMode = "sleeping";
   private activeChannelId: string | undefined;
   private sleepingContext = new Map<string, HumanMessage[]>();
@@ -114,6 +116,7 @@ export class BotSession {
    * @param timingOverrides - Narrow timer overrides intended for behavior tests.
    * @param persistence - Optional durable context and session-state persistence capabilities.
    * @param promptContext - Optional dynamic local-time prompt values.
+   * @param observer - Optional detached execution and session diagnostics.
    * @throws When a timing override is negative or not finite.
    */
   constructor(
@@ -125,6 +128,7 @@ export class BotSession {
     timingOverrides: BotSessionTimingOverrides = {},
     private readonly persistence: BotSessionPersistence = {},
     private readonly promptContext: BotSessionPromptContext = {},
+    private readonly observer?: ExecutionObserver,
   ) {
     this.timings = { ...productionTimings, ...timingOverrides };
 
@@ -142,6 +146,7 @@ export class BotSession {
    * @param pinged - Whether the message directly mentioned Ben.
    */
   handleMessage(message: HumanMessage, pinged: boolean): void {
+    if (this.stopped) return;
     this.lastMessageAt.set(message.channelId, Date.now());
     this.clearTyping(message.channelId, message.userId);
     const recentContext = this.getSleepingContext(message.channelId);
@@ -197,6 +202,7 @@ export class BotSession {
    * @param complete - Durable completion callback invoked when the task conversation sleeps.
    */
   enqueueTask(task: AutonomousTask, complete: () => Promise<void>): void {
+    if (this.stopped) return;
     const wake: TaskWake = {
       kind: "task",
       channelId: task.destination.channelId,
@@ -232,7 +238,10 @@ export class BotSession {
 
   /** Releases timers when application composition shuts down. */
   stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
     this.clearTimers();
+    observeExecution(this.observer, { type: "session_stopped" });
   }
 
   /**
@@ -272,9 +281,10 @@ export class BotSession {
    * @returns Whether the session transitioned from sleeping to dreaming.
    */
   beginDreaming(): boolean {
-    if (this.mode !== "sleeping") return false;
+    if (this.stopped || this.mode !== "sleeping") return false;
     this.mode = "dreaming";
     this.logger.info("session.dreaming_started");
+    observeExecution(this.observer, { type: "session_dreaming", active: true });
     return true;
   }
 
@@ -283,6 +293,7 @@ export class BotSession {
     if (this.mode !== "dreaming") return;
     this.mode = "sleeping";
     this.logger.info("session.dreaming_finished", { queuedChannels: this.queuedWakes.length });
+    observeExecution(this.observer, { type: "session_dreaming", active: false });
     this.promoteQueuedWake();
   }
 
@@ -308,6 +319,11 @@ export class BotSession {
       source: wake.kind,
       messages: wake.messages.length,
     });
+    observeExecution(this.observer, {
+      type: "session_wake",
+      channelId: wake.channelId,
+      source: wake.kind,
+    });
     if (wake.kind === "task") void this.startTaskWake(wake);
     else this.scheduleDebounce();
     this.resetIdleTimer();
@@ -327,7 +343,7 @@ export class BotSession {
 
   /** Schedules processing after both message and typing activity settle. */
   private scheduleDebounce(): void {
-    if (this.taskStarting) return;
+    if (this.stopped || this.taskStarting) return;
     const channelId = this.activeChannelId;
     if (channelId === undefined) return;
     if (this.debounceTimer !== undefined) clearTimeout(this.debounceTimer);
@@ -356,7 +372,9 @@ export class BotSession {
       return;
     }
 
-    void this.processPendingBatch();
+    void this.processPendingBatch().catch((error: unknown) => {
+      this.logger.warn("conversation.failed", { error: String(error) });
+    });
   }
 
   /** Finds when a channel is quiet enough to process. */
@@ -455,7 +473,18 @@ export class BotSession {
       const outcome = await this.orchestrator
         .run(this.instructions, this.history, prompt)
         .catch((error: unknown): ConversationOutcome => ({ type: "failed", error }));
-      await this.applyOutcome(outcome, channelId);
+      try {
+        await this.applyOutcome(outcome, channelId);
+        observeExecution(this.observer, { type: "turn_completed", channelId, outcome });
+      } catch (error) {
+        observeExecution(this.observer, {
+          type: "outcome_error",
+          channelId,
+          operation: "apply",
+          error,
+        });
+        throw error;
+      }
     } finally {
       stopTyping();
     }
@@ -470,10 +499,11 @@ export class BotSession {
       });
     };
     send();
-    this.typingTimer = setInterval(send, this.timings.typingRefreshMs);
+    const timer = setInterval(send, this.timings.typingRefreshMs);
+    this.typingTimer = timer;
     return () => {
-      if (this.typingTimer !== undefined) clearInterval(this.typingTimer);
-      this.typingTimer = undefined;
+      clearInterval(timer);
+      if (this.typingTimer === timer) this.typingTimer = undefined;
     };
   }
 
@@ -486,9 +516,15 @@ export class BotSession {
       if (this.activeTaskWake === undefined) {
         await this.persistence.summaries?.add(outcome.summary).catch((error: unknown) => {
           this.logger.warn("conversation_summaries.write_failed", { error: String(error) });
+          observeExecution(this.observer, {
+            type: "outcome_error",
+            channelId,
+            operation: "summary",
+            error,
+          });
         });
       }
-      this.goToSleep("model");
+      await this.goToSleep("model");
       return;
     }
 
@@ -536,18 +572,33 @@ export class BotSession {
     }
     await this.transport.sendMessage(channelId, text).catch((error: unknown) => {
       this.logger.warn("chat.send_failed", { error: String(error) });
+      observeExecution(this.observer, {
+        type: "outcome_error",
+        channelId,
+        operation: "delivery",
+        error,
+      });
     });
   }
 
   /** Resets the automatic sleep timer while the session is awake. */
   private resetIdleTimer(): void {
-    if (this.mode === "sleeping" || this.mode === "dreaming" || this.mode === "processing") return;
+    if (
+      this.stopped ||
+      this.mode === "sleeping" ||
+      this.mode === "dreaming" ||
+      this.mode === "processing"
+    )
+      return;
     if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.goToSleep("idle"), this.timings.idleSleepMs);
+    this.idleTimer = setTimeout(() => {
+      void this.goToSleep("idle");
+    }, this.timings.idleSleepMs);
   }
 
   /** Clears conversation memory, then promotes the oldest queued channel. */
-  private goToSleep(reason: "model" | "idle"): void {
+  private goToSleep(reason: "model" | "idle"): Promise<void> {
+    const channelId = this.activeChannelId;
     const completedTask = this.activeTaskWake;
     this.clearTimers();
     this.mode = "sleeping";
@@ -564,20 +615,32 @@ export class BotSession {
     this.presence.setPresence({ status: "idle" });
     this.logger.info("session.sleep", { reason, queuedChannels: this.queuedWakes.length });
 
-    if (completedTask !== undefined) {
-      void completedTask.complete().catch((error: unknown) => {
-        this.logger.warn("tasks.completion_callback_failed", {
-          id: completedTask.task.id,
-          error: String(error),
-        });
-      });
-    }
+    observeExecution(this.observer, { type: "session_sleep", channelId, reason });
+    const completion =
+      completedTask === undefined
+        ? Promise.resolve()
+        : Promise.resolve()
+            .then(() => completedTask.complete())
+            .catch((error: unknown) => {
+              observeExecution(this.observer, {
+                type: "outcome_error",
+                channelId,
+                operation: "task_completion",
+                error,
+              });
+              this.logger.warn("tasks.completion_callback_failed", {
+                id: completedTask.task.id,
+                error: String(error),
+              });
+            });
 
     this.promoteQueuedWake();
+    return completion;
   }
 
   /** Promotes the oldest queued ping into a fresh conversation. */
   private promoteQueuedWake(): void {
+    if (this.stopped) return;
     const next = this.queuedWakes.shift();
     if (next !== undefined) this.activateWake(next);
   }

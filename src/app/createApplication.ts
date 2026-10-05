@@ -1,7 +1,9 @@
+import { join } from "node:path";
+import type { ExecutionObserver } from "./ExecutionObserver.js";
 import type { AppEnv } from "../env.js";
 import type { Logger } from "../logger.js";
 import { ConversationOrchestrator } from "./ConversationOrchestrator.js";
-import { BotSession } from "./BotSession.js";
+import { BotSession, type BotSessionTimingOverrides } from "./BotSession.js";
 import { DiscordAdapter } from "../discord/DiscordAdapter.js";
 import { ChannelMentionDirectory, UserMentionDirectory } from "../discord/DiscordDirectory.js";
 import type { DiscordGateway } from "../discord/DiscordGateway.js";
@@ -44,14 +46,14 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { sleepTool, waitTool } from "../tools/conversationControls.js";
 import { createRememberTool } from "../tools/remember.js";
 
-const paths = {
-  summaries: "logs/conversation-summaries.json",
-  people: "logs/known-people.json",
-  tasks: "logs/tasks.json",
-  customStatus: "logs/custom-status.json",
-  memories: "logs/memories.json",
-  longTermMemory: "logs/long-term-memory.txt",
-  memoryConsolidationState: "logs/memory-consolidation.json",
+const stateFiles = {
+  summaries: "conversation-summaries.json",
+  people: "known-people.json",
+  tasks: "tasks.json",
+  customStatus: "custom-status.json",
+  memories: "memories.json",
+  longTermMemory: "long-term-memory.txt",
+  memoryConsolidationState: "memory-consolidation.json",
 } as const;
 
 export type Application = {
@@ -68,6 +70,9 @@ export type ApplicationDependencies = {
   instructions: string;
   consolidationInstructions: string;
   usageStore: OpenAIUsageStore;
+  stateDirectory?: string;
+  sessionTimings?: BotSessionTimingOverrides;
+  observer?: ExecutionObserver;
 };
 
 /**
@@ -78,6 +83,12 @@ export type ApplicationDependencies = {
  */
 export function createApplication(dependencies: ApplicationDependencies): Application {
   const { env, logger, gateway } = dependencies;
+  const paths = Object.fromEntries(
+    Object.entries(stateFiles).map(([name, file]) => [
+      name,
+      join(dependencies.stateDirectory ?? "logs", file),
+    ]),
+  ) as Record<keyof typeof stateFiles, string>;
   const users = new UserMentionDirectory();
   const channels = new ChannelMentionDirectory();
   let session!: BotSession;
@@ -177,15 +188,21 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
   tools.register(createDeleteTaskTool(taskToolDependencies));
   session = new BotSession(
     dependencies.instructions,
-    new ConversationOrchestrator(dependencies.conversationModel, tools),
+    new ConversationOrchestrator(
+      dependencies.conversationModel,
+      tools,
+      undefined,
+      dependencies.observer,
+    ),
     transport,
     presence,
     logger,
-    {},
+    dependencies.sessionTimings,
     { summaries, knownPeople: people, customStatus, memories, longTermMemory },
     {
       getCurrentBotTime: () => formatBotTime(new Date(), SCHEDULE_TIME_ZONE),
     },
+    dependencies.observer,
   );
   const taskScheduler = new TaskScheduler(
     tasks,
