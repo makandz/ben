@@ -102,7 +102,7 @@ test("stdin accepts fragmented JSONL and CRLF with machine-only stdout", async (
 test("personas and multi-channel batches use real prompts, tools and ordered artifacts", async () => {
   const model = new ScriptedModel([
     turn("message", {
-      text: ["hello @alex", "second"],
+      text: ["hello @alex", "second <@!9000> <#2001>"],
       reply_to: "10001",
       next_action: "sleep",
       sleep_summary: "general summary",
@@ -143,10 +143,68 @@ test("personas and multi-channel batches use real prompts, tools and ordered art
       f.events.filter((event) => "sequence" in event),
     );
     assert.match(await readFile(String(ready.logPath), "utf8"), /Ben: second/);
+    const transcript = await readFile(String(ready.transcriptPath), "utf8");
+    assert.deepEqual(
+      [...transcript.matchAll(/\*\*([^\n]+)\*\*\n\n([\s\S]*?)(?=\n\n(?:\*\*|### )|$)/g)].map(
+        (match) => [match[1], match[2]?.trimEnd()],
+      ),
+      [
+        ["makan · #general", "@Ben hello #games"],
+        ["alex · #general", "hi"],
+        ["alex · #games", "@Ben game night?"],
+        ["Ben · #general", "hello @alex"],
+        ["Ben · #general", "second @Ben #games"],
+      ],
+    );
+    const toolEvents = [
+      ...transcript.matchAll(/### (tool_call|tool_result)\n\n```json\n([\s\S]*?)\n```/g),
+    ].map((match) => ({
+      type: match[1],
+      ...(JSON.parse(match[2] ?? "") as Record<string, unknown>),
+    }));
+    assert.deepEqual(
+      toolEvents,
+      trace
+        .filter((event) => event.type === "tool_call" || event.type === "tool_result")
+        .map((event) => ({
+          type: event.type,
+          call: event.call,
+          ...(event.type === "tool_result" ? { execution: event.execution } : {}),
+        })),
+    );
+    assert.ok(transcript.indexOf("### tool_call") < transcript.indexOf("**Ben · #general**"));
+    assert.ok(transcript.indexOf("second @Ben #games") < transcript.indexOf("### tool_result"));
+    assert.match(transcript, /### session_wake[\s\S]*### session_sleep[\s\S]*### turn_completed/);
+    assert.doesNotMatch(transcript, /model_request|model_turn|diagnostic|"history"|"instructions"/);
+    assert.equal(
+      f.events.find((event) => event.type === "result" && event.op === "start")?.transcriptPath,
+      ready.transcriptPath,
+    );
+    await f.command({ op: "inspect" });
+    assert.equal(
+      (f.events.at(-1)?.state as { transcriptPath: string }).transcriptPath,
+      ready.transcriptPath,
+    );
     assert.match(
       await readFile(join(String(ready.session), "prompts.json"), "utf8"),
       /instructions/,
     );
+    const statusSession = await startSession({
+      root: f.root,
+      model: new ScriptedModel([]),
+      emit() {},
+    });
+    try {
+      await statusSession.local.gateway.sendMessage("2002", "operational status", {
+        allowUserMentions: false,
+      });
+      assert.match(await readFile(statusSession.logPath, "utf8"), /operational status/);
+      assert.match(await readFile(statusSession.tracePath, "utf8"), /operational status/);
+      assert.equal(await readFile(statusSession.transcriptPath, "utf8"), "# Conversation\n\n");
+    } finally {
+      await statusSession.stop();
+    }
+    assert.match(await readFile(statusSession.transcriptPath, "utf8"), /### session_stopped/);
   } finally {
     await f.cleanup();
   }
@@ -176,6 +234,9 @@ test("seed and usage are isolated, unpinged context stays asleep, inspect return
     assert.equal(model.requests.length, 0);
     await a.command({ op: "message", content: "hi", ping: true });
     await until(() => a.events.some((event) => event.type === "turn_completed"));
+    const transcript = await readFile(String(a.ready().transcriptPath), "utf8");
+    assert.match(transcript, /"name": "wait"[\s\S]*"outcome": \{\s*"type": "wait"/);
+    assert.doesNotMatch(transcript, /"history"/);
     for (const expected of [
       "private test memory",
       "private test status",

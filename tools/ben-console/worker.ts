@@ -44,6 +44,7 @@ export function createWorker(options: SessionOptions) {
               directory: session.directory,
               logPath: session.logPath,
               tracePath: session.tracePath,
+              transcriptPath: session.transcriptPath,
             });
           }
         });

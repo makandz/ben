@@ -90,6 +90,8 @@ export async function startSession(options: SessionOptions, settings: StartOptio
   const secrets = [options.apiKey ?? ""];
   const tracePath = join(directory, "trace.jsonl");
   const logPath = join(directory, "session.log");
+  const transcriptPath = join(directory, "conversation.md");
+  await writeFile(transcriptPath, "# Conversation\n\n");
   let sequence = 0;
   let closed = false;
   const record = (value: Record<string, unknown>, publish = true) => {
@@ -125,6 +127,63 @@ export async function startSession(options: SessionOptions, settings: StartOptio
       logPath,
       `${String(event.sequence)} ${String(event.timestamp)} ${String(event.type)} ${detail}\n`,
     );
+    const deliveryOptions = event.options as { allowUserMentions?: boolean } | undefined;
+    if (
+      event.type === "discord_input" ||
+      (event.type === "discord_send" && deliveryOptions?.allowUserMentions !== false)
+    ) {
+      const input = event.message as
+        { author: { username: string }; channel: { name: string }; content: string } | undefined;
+      const speaker = input?.author.username ?? "Ben";
+      const channelName =
+        input?.channel.name ??
+        local.channels.find((channel) => channel.id === event.channelId)?.name ??
+        String(event.channelId);
+      const content = String(input?.content ?? event.content).replace(
+        /<(@!?|#)(\d+)>/g,
+        (mention, kind: string, id: string) => {
+          if (kind === "#") {
+            const channel = local.channels.find((item) => item.id === id);
+            return channel?.name ? `#${channel.name}` : mention;
+          }
+          const user = [local.gateway.getBotUser(), ...local.users].find((item) => item?.id === id);
+          return user ? `@${user.username}` : mention;
+        },
+      );
+      appendFileSync(transcriptPath, `**${speaker} · #${channelName}**\n\n${content}\n\n`);
+    } else if (
+      [
+        "tool_call",
+        "tool_result",
+        "tool_error",
+        "model_error",
+        "outcome_error",
+        "turn_completed",
+        "session_wake",
+        "session_sleep",
+        "session_dreaming",
+        "session_stopped",
+      ].includes(String(event.type))
+    ) {
+      const details = { ...event };
+      delete details.sequence;
+      delete details.timestamp;
+      delete details.session;
+      delete details.type;
+      if (event.type === "turn_completed") {
+        const outcome = { ...(event.outcome as Record<string, unknown>) };
+        delete outcome.history;
+        details.outcome = outcome;
+      }
+      if (typeof details.channelId === "string") {
+        const channel = local.channels.find((item) => item.id === details.channelId);
+        if (channel?.name) details.channelId = `#${channel.name}`;
+      }
+      appendFileSync(
+        transcriptPath,
+        `### ${String(event.type)}\n\n\`\`\`json\n${JSON.stringify(details, null, 2)}\n\`\`\`\n\n`,
+      );
+    }
     if (publish) options.emit(event);
     return event;
   };
@@ -216,6 +275,7 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     type: "ready",
     logPath,
     tracePath,
+    transcriptPath,
     stateDirectory,
     users: local.users,
     channels: local.channels,
@@ -224,6 +284,7 @@ export async function startSession(options: SessionOptions, settings: StartOptio
     directory,
     logPath,
     tracePath,
+    transcriptPath,
     local,
     message(inputs: InputMessage[]) {
       if (stopping) throw new Error("Session is stopping");
@@ -245,6 +306,7 @@ export async function startSession(options: SessionOptions, settings: StartOptio
         directory,
         logPath,
         tracePath,
+        transcriptPath,
         users: local.users,
         channels: local.channels,
         messages: local.messages,

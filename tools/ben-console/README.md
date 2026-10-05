@@ -22,13 +22,15 @@ Commands are `start`, `message`, `batch`, `inspect` and `stop`. Unknown fields a
 
 Defaults are users `makan`, `alex` and channels `general`, `games`, `ben-log`. Messages require `content`; optional `user` and `channel` accept names or IDs from `ready` and default to the first configured entry. `@Ben` or `ping: true` wakes Ben. Follow-ups in the active channel need no ping until Ben sleeps. Configured `@username` and `#channel` mentions use the real application directories. Model-authored mentions and replies use the real transport.
 
-`ready` and the start result give absolute artifact paths. Watch the readable log in another terminal:
+For on-demand adaptive conversations, follow the [conversation workflow](workflow.md). Read the user task and choose follow-ups from Ben's actual responses.
+
+`ready` and the start result give absolute artifact paths, including `transcriptPath`. Watch the conversation in another terminal:
 
 ```sh
-tail -f /absolute/path/from/ready/session.log
+tail -f /absolute/path/from/ready/conversation.md
 ```
 
-`session.log` includes messages, prompt context and tool results. `trace.jsonl` contains full ordered model instructions, histories, outputs, calls, tool results, lifecycle events, deliveries and errors. Both use the same sequence numbers. `inspect` returns local messages, directory entries, persisted state, usage and artifact paths. Persistence reflects completed writes; the trace shows in-flight work.
+`conversation.md` includes injected user messages and delivered conversational messages, in order with speakers and channels. It includes every conversational chunk and renders known mentions as `@Ben`, `@username` and `#channel`. It also records actual tool calls, arguments, results, execution outcomes such as reply/wait/sleep, errors and session lifecycle events as readable JSON blocks. Operational status deliveries, diagnostics, full model requests/turns and repeated outcome histories stay out of the transcript. `session.log` includes messages, prompt context and tool results. `trace.jsonl` contains full ordered model instructions, histories, outputs, calls, tool results, lifecycle events, deliveries and errors. The log and trace use the same sequence numbers. `inspect` returns local messages, directory entries, persisted state, usage and artifact paths. Persistence reflects completed writes; the trace shows in-flight work.
 
 Customize the directory, daily budget or seed state on start:
 
