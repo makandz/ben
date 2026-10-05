@@ -16,6 +16,19 @@ type DevRecord = {
   error?: unknown;
 };
 
+const componentColors: Record<string, number> = {
+  session: 36,
+  chat: 32,
+  tasks: 35,
+  memory: 34,
+  memories: 34,
+  people: 90,
+  discord: 37,
+  typing: 90,
+  model: 34,
+  openai: 34,
+};
+
 /** Writes structured application events and an optional readable development feed. */
 export class Logger {
   private readonly logger: pino.Logger;
@@ -116,7 +129,7 @@ function formatDev(record: DevRecord, color: boolean, stacks: boolean): string {
           : JSON.stringify(error);
   const message = singleLine(record.msg + (errorMessage === undefined ? "" : `: ${errorMessage}`));
   const alignedLabel = singleLine(label).padEnd(8);
-  const tint = record.level >= 50 ? 31 : record.level >= 40 ? 33 : 36;
+  const tint = record.level >= 50 ? 31 : record.level >= 40 ? 33 : (componentColors[label] ?? 90);
   const prefix = color
     ? `\u001b[2m${time}\u001b[0m  \u001b[${String(tint)}m${alignedLabel}\u001b[0m`
     : `${time}  ${alignedLabel}`;
