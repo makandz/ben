@@ -73,6 +73,8 @@ export type ApplicationDependencies = {
   stateDirectory?: string;
   sessionTimings?: BotSessionTimingOverrides;
   observer?: ExecutionObserver;
+  /** Whether readiness starts background task and consolidation timers. Defaults to true. */
+  startSchedulers?: boolean;
 };
 
 /**
@@ -251,8 +253,10 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
         } catch (error) {
           logger.warn("discord.custom_status_restore_failed", { error: String(error) });
         }
-        void taskScheduler.start();
-        void memoryConsolidationScheduler.start();
+        if (dependencies.startSchedulers !== false) {
+          void taskScheduler.start();
+          void memoryConsolidationScheduler.start();
+        }
         void registerUsageCommand(gateway, logger).catch((error: unknown) => {
           logger.warn("discord.command_registration_failed", { error: String(error) });
         });
@@ -287,9 +291,9 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
       await adapter.start(env.discordToken);
     },
     async stop() {
-      session.stop();
       taskScheduler.stop();
       memoryConsolidationScheduler.stop();
+      await session.stop();
       await adapter.stop();
     },
   };

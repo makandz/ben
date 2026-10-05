@@ -63,3 +63,5 @@ pnpm build
 ```
 
 Ben's personality and behavior are defined by the Markdown files in [`src/prompts`](src/prompts). In development, editing a prompt restarts Ben automatically, so the new instructions apply after it reconnects.
+
+The [Ben console](tools/ben-console/README.md) runs the real application through a local Discord gateway with isolated state, multiple speakers and channels, and live model/tool traces. Start it with `pnpm --silent console` and send newline-delimited JSON commands. It does not connect to Discord or touch the running bot's logs.

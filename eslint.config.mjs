@@ -16,7 +16,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "tools/**/*.ts"],
     extends: [
       js.configs.recommended,
       ...tseslint.configs.strictTypeChecked,
@@ -26,7 +26,7 @@ export default tseslint.config(
       ecmaVersion: 2022,
       globals: globals.node,
       parserOptions: {
-        project: "./tsconfig.json",
+        project: ["./tsconfig.json", "./tools/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -41,7 +41,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "tools/**/*.ts"],
     rules: {
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
       "@typescript-eslint/require-await": "off",
@@ -49,7 +49,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/**/*.test.ts", "src/testing/**/*.ts"],
+    files: ["src/**/*.test.ts", "src/testing/**/*.ts", "tools/**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-empty-function": "off",
       "@typescript-eslint/no-floating-promises": "off",

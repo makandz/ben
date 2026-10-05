@@ -10,8 +10,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/__tests__/*.test.ts src/*/__tests__/*.test.ts src/model/openai/__tests__/*.test.ts"
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tools/tsconfig.json",
+    "test": "node --import tsx --test src/__tests__/*.test.ts src/*/__tests__/*.test.ts src/model/openai/__tests__/*.test.ts tools/ben-console/*.test.ts",
+    "console": "node --import tsx tools/ben-console/worker.ts",
+    "typecheck:tools": "tsc --project tools/tsconfig.json"
   },
   "engines": {
     "node": ">=20"

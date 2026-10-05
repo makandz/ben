@@ -87,6 +87,7 @@ const productionTimings: SessionTimings = {
 export class BotSession {
   private readonly timings: SessionTimings;
   private stopped = false;
+  private readonly processing = new Set<Promise<void>>();
   private mode: SessionMode = "sleeping";
   private activeChannelId: string | undefined;
   private sleepingContext = new Map<string, HumanMessage[]>();
@@ -236,12 +237,20 @@ export class BotSession {
     }
   }
 
-  /** Releases timers when application composition shuts down. */
-  stop(): void {
-    if (this.stopped) return;
+  /**
+   * Releases timers and drains work already processing.
+   *
+   * @returns Resolves after in-flight turns and their persistence have finished.
+   */
+  async stop(): Promise<void> {
+    if (this.stopped) {
+      await Promise.allSettled(this.processing);
+      return;
+    }
     this.stopped = true;
     this.clearTimers();
     observeExecution(this.observer, { type: "session_stopped" });
+    await Promise.allSettled(this.processing);
   }
 
   /**
@@ -372,9 +381,14 @@ export class BotSession {
       return;
     }
 
-    void this.processPendingBatch().catch((error: unknown) => {
+    const work = this.processPendingBatch().catch((error: unknown) => {
       this.logger.warn("conversation.failed", { error: String(error) });
     });
+    this.processing.add(work);
+    void work.then(
+      () => this.processing.delete(work),
+      () => this.processing.delete(work),
+    );
   }
 
   /** Finds when a channel is quiet enough to process. */
