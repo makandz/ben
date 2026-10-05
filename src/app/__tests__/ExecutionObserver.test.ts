@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BotSession } from "../BotSession.js";
+import {
+  BotSession,
+  type ConversationRunner,
+  type BotSessionPersistence,
+  type BotSessionTimingOverrides,
+} from "../BotSession.js";
+import type { ChatTransport } from "../ChatTransport.js";
 import { ConversationOrchestrator } from "../ConversationOrchestrator.js";
 import {
   observeExecution,
@@ -41,6 +47,28 @@ function completionObserver(events: ExecutionEvent[]) {
   return { observer, completed };
 }
 
+function createSession(
+  runner: ConversationRunner,
+  observer: ExecutionObserver,
+  options: {
+    transport?: ChatTransport;
+    persistence?: BotSessionPersistence;
+    timings?: BotSessionTimingOverrides;
+  } = {},
+) {
+  return new BotSession(
+    "instructions",
+    runner,
+    options.transport ?? new RecordingTransport(),
+    { setPresence() {} },
+    logger,
+    { messageDebounceMs: 0, idleSleepMs: 10000, ...options.timings },
+    options.persistence,
+    {},
+    observer,
+  );
+}
+
 test("records the complete ordered trace through persisted sleep and queued wake promotion", async (t) => {
   const events: ExecutionEvent[] = [];
   const { observer, completed } = completionObserver(events);
@@ -67,19 +95,13 @@ test("records the complete ordered trace through persisted sleep and queued wake
     { items: [call("sleep", { summary: "Saved summary" })] },
   ]);
   const registry = new ToolRegistry([lookup, sleepTool]);
-  const session = new BotSession(
-    "instructions",
+  const session = createSession(
     new ConversationOrchestrator(model, registry, undefined, observer),
-    new RecordingTransport(),
-    { setPresence() {} },
-    logger,
-    { messageDebounceMs: 0, idleSleepMs: 10000 },
-    persistence,
-    {},
     (event) => {
       if (event.type === "turn_completed") savedAtCompletion = saved;
       observer(event);
     },
+    { persistence },
   );
   t.after(() => session.stop());
   session.handleMessage(ping, true);
@@ -133,28 +155,25 @@ test("completes reply turns after delivery and does not recreate timers after st
   const delivery = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const session = new BotSession(
-    "instructions",
+  const session = createSession(
     {
       async run() {
         return { type: "reply", text: "hi", history: [] };
       },
     },
-    {
-      async sendMessage() {
-        started();
-        await delivery;
-        return { id: "delivered", createdAt: 0 };
-      },
-      async sendTyping() {},
-      async logStatus() {},
-    },
-    { setPresence() {} },
-    logger,
-    { messageDebounceMs: 0, idleSleepMs: 1, typingRefreshMs: 1 },
-    {},
-    {},
     observer,
+    {
+      timings: { idleSleepMs: 1, typingRefreshMs: 1 },
+      transport: {
+        async sendMessage() {
+          started();
+          await delivery;
+          return { id: "delivered", createdAt: 0 };
+        },
+        async sendTyping() {},
+        async logStatus() {},
+      },
+    },
   );
   session.handleMessage(ping, true);
   await delivering;
@@ -221,12 +240,9 @@ test("records model and tool errors including synchronous boundary failures", as
     events.map((event) => event.type),
     ["model_request", "model_error"],
   );
-  assert.match(
-    (events[1] as Extract<ExecutionEvent, { type: "model_error" }>).error instanceof Error
-      ? String((events[1] as Extract<ExecutionEvent, { type: "model_error" }>).error)
-      : "",
-    /model failed/,
-  );
+  const error = events[1];
+  assert.ok(error?.type === "model_error");
+  assert.match(String(error.error), /model failed/);
   events.length = 0;
   const broken: Tool = {
     definition: { name: "broken", description: "Broken", parameters: {} },
@@ -258,29 +274,26 @@ test("reports contained persistence and delivery errors before completing outcom
     transport.sendMessage = async () => {
       throw new Error("delivery unavailable");
     };
-    const session = new BotSession(
-      "instructions",
+    const session = createSession(
       {
         async run() {
           return outcome;
         },
       },
-      transport,
-      { setPresence() {} },
-      logger,
-      { messageDebounceMs: 0, idleSleepMs: 10000 },
+      observer,
       {
-        summaries: {
-          async list() {
-            return [];
-          },
-          async add() {
-            throw new Error("persistence unavailable");
+        transport,
+        persistence: {
+          summaries: {
+            async list() {
+              return [];
+            },
+            async add() {
+              throw new Error("persistence unavailable");
+            },
           },
         },
       },
-      {},
-      observer,
     );
     t.after(() => session.stop());
     session.handleMessage(ping, true);
@@ -299,24 +312,18 @@ test("observes dreaming and idle sleep transitions without awaiting async observ
   const slept = new Promise<void>((done) => {
     resolve = done;
   });
-  const session = new BotSession(
-    "instructions",
+  const session = createSession(
     {
       async run() {
         return { type: "wait", history: [] };
       },
     },
-    new RecordingTransport(),
-    { setPresence() {} },
-    logger,
-    { messageDebounceMs: 0, idleSleepMs: 1 },
-    {},
-    {},
     (event) => {
       events.push(event);
       if (event.type === "session_sleep") resolve();
       return new Promise<void>(() => {});
     },
+    { timings: { idleSleepMs: 1 } },
   );
   t.after(() => session.stop());
   assert.equal(session.beginDreaming(), true);
@@ -341,19 +348,12 @@ test("completes task turns after their durable completion callback settles", asy
   const saved = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const session = new BotSession(
-    "instructions",
+  const session = createSession(
     {
       async run() {
         return { type: "sleep", summary: "task done" };
       },
     },
-    new RecordingTransport(),
-    { setPresence() {} },
-    logger,
-    { messageDebounceMs: 0, idleSleepMs: 10000 },
-    {},
-    {},
     observer,
   );
   t.after(() => session.stop());

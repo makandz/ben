@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { config } from "dotenv";
 import { parseCommand } from "./protocol.js";
 import { serialize, startSession } from "./session.js";
-import type { SessionOptions, StartOptions } from "./session.js";
+import type { SessionOptions } from "./session.js";
 
 /**
  * Creates a persistent protocol dispatcher; model work never blocks subsequent input.
@@ -13,100 +13,68 @@ import type { SessionOptions, StartOptions } from "./session.js";
  */
 export function createWorker(options: SessionOptions) {
   let session: Awaited<ReturnType<typeof startSession>> | undefined;
-  let settings: StartOptions = {};
   let lifecycle: Promise<void> | undefined;
-  let transitioning = false;
   let stopped = false;
-  const seen = new Set<string>();
+  let shutdownWork: Promise<void> | undefined;
   const emit = options.emit;
   const handle = async (line: string) => {
-    let id: string | undefined;
+    let op: string | undefined;
     try {
-      const raw: unknown = JSON.parse(line);
-      if (typeof raw === "object" && raw !== null && "id" in raw && typeof raw.id === "string")
-        id = raw.id;
       const command = parseCommand(line);
-      id = command.id;
-      if (seen.has(id)) throw new Error("Duplicate request id");
+      op = command.op;
       if (stopped) throw new Error("Worker is stopped");
-      if (transitioning)
-        throw new Error("Session lifecycle transition in progress; wait for result/ready");
-      seen.add(id);
-      if (command.op === "start" || command.op === "reset" || command.op === "stop") {
-        if (command.op === "start" && session)
-          throw new Error("Session already started; use reset");
-        if (command.op === "reset" && !session) throw new Error("Start a session first");
-        transitioning = true;
-        emit({ type: "ack", requestId: id, op: command.op });
-        lifecycle = (async () => {
-          if (session) await session.stop();
-          session = undefined;
+      if (lifecycle) throw new Error("Session lifecycle transition in progress; wait for result");
+      if (command.op === "start" || command.op === "stop") {
+        if (command.op === "start" && session) throw new Error("Session already started");
+        // Defer setup so lifecycle is installed before any awaited operation or emitted event.
+        lifecycle = Promise.resolve().then(async () => {
           if (command.op === "stop") {
+            await session?.stop();
+            session = undefined;
             stopped = true;
-            emit({ type: "result", requestId: id, status: "stopped" });
-            return;
-          }
-          if (command.op === "start") {
-            const { id: _id, op: _op, ...rest } = command;
-            void _id;
+            emit({ type: "result", op, status: "stopped" });
+          } else {
+            const { op: _op, ...settings } = command;
             void _op;
-            settings = rest;
+            session = await startSession(options, settings);
+            emit({
+              type: "result",
+              op,
+              status: "ready",
+              directory: session.directory,
+              logPath: session.logPath,
+              tracePath: session.tracePath,
+            });
           }
-          session = await startSession(options, settings);
-          emit({
-            type: "result",
-            requestId: id,
-            status: "ready",
-            directory: session.directory,
-            logPath: session.logPath,
-            tracePath: session.tracePath,
-          });
-        })();
+        });
         try {
           await lifecycle;
         } finally {
-          transitioning = false;
           lifecycle = undefined;
         }
         return;
       }
       if (!session) throw new Error("Start a session first");
-      switch (command.op) {
-        case "message":
-        case "batch": {
-          const inputs = command.op === "batch" ? command.messages : [command];
-          for (const input of inputs) session.local.validate(input);
-          emit({ type: "ack", requestId: id, op: command.op });
-          const messageIds = session.message(id, inputs);
-          emit({ type: "injected", requestId: id, messageIds });
-          break;
-        }
-        case "typing":
-          session.local.typing(command.user, command.channel);
-          emit({ type: "ack", requestId: id, op: command.op });
-          break;
-        case "fail":
-          session.local.fail(command.operation, command.count);
-          emit({ type: "ack", requestId: id, op: command.op });
-          break;
-        case "inspect":
-          emit({ type: "ack", requestId: id, op: command.op });
-          emit({ type: "result", requestId: id, state: await session.inspect() });
-          break;
+      if (command.op === "inspect") {
+        emit({ type: "result", op, state: await session.inspect() });
+      } else {
+        const inputs = command.op === "batch" ? command.messages : [command];
+        emit({ type: "result", op, messageIds: session.message(inputs) });
       }
     } catch (error) {
-      emit({ type: "error", requestId: id ?? null, error });
+      emit({ type: "error", op: op ?? null, error });
     }
   };
   return {
     handle,
     async shutdown() {
-      if (lifecycle) await lifecycle.catch(() => undefined);
-      if (session && !stopped) {
-        await session.stop();
-        session = undefined;
-      }
       stopped = true;
+      shutdownWork ??= (async () => {
+        if (lifecycle) await lifecycle.catch(() => undefined);
+        await session?.stop();
+        session = undefined;
+      })();
+      await shutdownWork;
     },
   };
 }

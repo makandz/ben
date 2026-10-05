@@ -10,12 +10,11 @@ export type InputMessage = {
   channel?: string | undefined;
   content: string;
   ping?: boolean | undefined;
-  replyTo?: string | undefined;
 };
 export type Directory = { users?: string[] | undefined; channels?: string[] | undefined };
 
 /**
- * Builds an entirely local Discord boundary, including delivery failure injection.
+ * Builds an entirely local Discord boundary with synthetic users and channels.
  * @param record - Ordered output event sink.
  * @param directory - Synthetic usernames and channel names.
  * @returns Gateway and input controls that never construct a Discord client.
@@ -35,7 +34,6 @@ export function createGateway(
   );
   let handlers: DiscordGatewayHandlers | undefined;
   let counter = 0;
-  const failures = new Map<string, number>();
   const messages: Record<string, unknown>[] = [];
   const user = (name = users[0]?.username ?? "makan") => {
     const found = users.find((item) => item.username === name || item.id === name);
@@ -48,12 +46,7 @@ export function createGateway(
     return found;
   };
   const delivery = (operation: string, data: Record<string, unknown>) => {
-    const remaining = failures.get(operation) ?? 0;
-    record({ type: `discord_${operation}`, ...data, failed: remaining > 0 });
-    if (remaining > 0) {
-      failures.set(operation, remaining - 1);
-      throw new Error(`Simulated ${operation} failure`);
-    }
+    record({ type: `discord_${operation}`, ...data });
   };
   const gateway: DiscordGateway = {
     setHandlers(value) {
@@ -105,10 +98,6 @@ export function createGateway(
     users,
     channels,
     messages,
-    fail(operation: string, count: number) {
-      failures.set(operation, count);
-      record({ type: "failure_plan", operation, count });
-    },
     validate(input: InputMessage) {
       user(input.user);
       channel(input.channel);
@@ -123,8 +112,6 @@ export function createGateway(
         content = content.replaceAll(`#${item.name ?? ""}`, `<#${item.id}>`);
       if (input.ping === true && !content.includes(`<@${bot.id}>`))
         content = `<@${bot.id}> ${content}`;
-      // Reply references are retained in the local transcript. DiscordAdapter has no reply metadata.
-      if (input.replyTo) content = `[reply to message ${input.replyTo}] ${content}`;
       const event = {
         id: String(++counter + 10000),
         channel: destination,
@@ -138,11 +125,6 @@ export function createGateway(
       record({ type: "discord_input", message: event });
       handlers?.message(event);
       return event;
-    },
-    typing(username?: string, channelName?: string) {
-      const event = { user: user(username), channel: channel(channelName) };
-      record({ type: "discord_human_typing", ...event });
-      handlers?.typing(event);
     },
   };
 }

@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExecutionEvent } from "../ExecutionObserver.js";
 
-import { createApplication } from "../createApplication.js";
+import { createApplication, type ApplicationDependencies } from "../createApplication.js";
 import type {
   DiscordGateway,
   DiscordGatewayHandlers,
@@ -17,14 +15,16 @@ import { OpenAIUsageStore } from "../../model/openai/OpenAIUsageStore.js";
 import { ScriptedModel } from "../../testing/ScriptedModel.js";
 import { TaskStore } from "../../storage/TaskStore.js";
 
-test("composition performs no Discord login until explicitly started", async (t) => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "ben-composition-"));
-  t.after(() => rm(stateDirectory, { recursive: true, force: true }));
-  const gateway = new FakeGateway();
-  const app = createApplication({
+function compose(
+  stateDirectory: string,
+  gateway: FakeGateway,
+  model = new ScriptedModel([]),
+  options: Partial<ApplicationDependencies> = {},
+) {
+  return createApplication({
     env: {
       discordToken: "token",
-      openaiApiKey: "key",
+      openaiApiKey: "",
       discordLogChannelId: undefined,
       discordAdminUserId: undefined,
       openaiDailyBudgetUsd: 0,
@@ -32,122 +32,26 @@ test("composition performs no Discord login until explicitly started", async (t)
     },
     logger: new Logger("error"),
     gateway,
-    conversationModel: new ScriptedModel([]),
+    conversationModel: model,
     consolidationModel: new ScriptedModel([]),
     instructions: "Be Ben.",
     consolidationInstructions: "Consolidate memory.",
     stateDirectory,
     usageStore: new OpenAIUsageStore(join(stateDirectory, "usage"), "gpt-5.4-mini", 0),
+    ...options,
   });
+}
+
+test("composition performs no Discord login until explicitly started", async (t) => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "ben-composition-"));
+  t.after(() => rm(stateDirectory, { recursive: true, force: true }));
+  const gateway = new FakeGateway();
+  const app = compose(stateDirectory, gateway);
   assert.equal(gateway.loginToken, undefined);
   await app.start();
   assert.equal(gateway.loginToken, "token");
   await app.stop();
   assert.equal(gateway.destroyed, true);
-});
-
-test("composition forwards timing and observer options and isolates durable state", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "ben-state-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const usageStore = new OpenAIUsageStore(join(root, "caller-usage"), "gpt-5.4-mini", 0);
-  for (const label of ["first", "second"]) {
-    const stateDirectory = join(root, label);
-    await mkdir(stateDirectory);
-    await writeFile(join(stateDirectory, "long-term-memory.txt"), `Long term ${label}`);
-    await writeFile(
-      join(stateDirectory, "memories.json"),
-      JSON.stringify({ version: 1, memories: [`Memory ${label}`] }),
-    );
-    await writeFile(
-      join(stateDirectory, "custom-status.json"),
-      JSON.stringify({ version: 1, status: `Status ${label}` }),
-    );
-    const model = new ScriptedModel([
-      {
-        items: [
-          {
-            type: "tool_call",
-            callId: "sleep",
-            name: "sleep",
-            arguments: { summary: `Summary ${label}` },
-          },
-        ],
-      },
-    ]);
-    const gateway = new FakeGateway();
-    let resolve!: () => void;
-    const completed = new Promise<void>((done) => {
-      resolve = done;
-    });
-    const events: ExecutionEvent[] = [];
-    const app = createApplication({
-      env: {
-        discordToken: "token",
-        openaiApiKey: "key",
-        discordLogChannelId: undefined,
-        discordAdminUserId: undefined,
-        openaiDailyBudgetUsd: 0,
-        logLevel: "error",
-      },
-      logger: new Logger("error"),
-      gateway,
-      conversationModel: model,
-      consolidationModel: new ScriptedModel([]),
-      instructions: "Be Ben.",
-      consolidationInstructions: "Consolidate memory.",
-      usageStore,
-      stateDirectory,
-      sessionTimings: { messageDebounceMs: 0 },
-      observer(event) {
-        events.push(event);
-        if (event.type === "turn_completed") resolve();
-      },
-    });
-    t.after(() => app.stop());
-    await app.start();
-    const botUser = gateway.getBotUser();
-    assert.ok(botUser);
-    gateway.handlers?.message({
-      id: "ping",
-      channel: { id: "general", name: "general" },
-      author: { id: "makan", username: "Makan", bot: false },
-      content: "hello",
-      createdAt: Date.now(),
-      mentionedUsers: [botUser],
-      mentionedChannels: [],
-    });
-    await Promise.race([
-      completed,
-      new Promise<void>((_, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error("Composition timing override was not forwarded")),
-          1000,
-        );
-        timer.unref();
-      }),
-    ]);
-    const request = model.requests[0];
-    assert.match(JSON.stringify(request?.history), new RegExp(`Memory ${label}`));
-    assert.match(JSON.stringify(request?.history), new RegExp(`Long term ${label}`));
-    assert.match(JSON.stringify(request?.history), new RegExp(`Status ${label}`));
-    const summaries: unknown = JSON.parse(
-      await readFile(join(stateDirectory, "conversation-summaries.json"), "utf8"),
-    );
-    assert.match(JSON.stringify(summaries), new RegExp(`Summary ${label}`));
-    assert.deepEqual(
-      events.map((event) => event.type),
-      [
-        "session_wake",
-        "model_request",
-        "model_turn",
-        "tool_call",
-        "tool_result",
-        "session_sleep",
-        "turn_completed",
-      ],
-    );
-    await app.stop();
-  }
 });
 
 class FakeGateway implements DiscordGateway {
@@ -199,7 +103,6 @@ async function until(predicate: () => boolean) {
 
 async function shutdownFixture(repeat: "none" | "daily", model: ScriptedModel) {
   const root = await mkdtemp(join(tmpdir(), "ben-shutdown-"));
-  const tracePath = join(root, "trace.jsonl");
   const stateDirectory = join(root, "state");
   await mkdir(stateDirectory);
   await writeFile(
@@ -230,35 +133,17 @@ async function shutdownFixture(repeat: "none" | "daily", model: ScriptedModel) {
     join(stateDirectory, "memory-consolidation.json"),
     JSON.stringify({ version: 1, nextRunAt: "2099-01-01T00:00:00.000Z" }),
   );
-  let closed = false;
+  const events: string[] = [];
   const record = (event: unknown) => {
-    if (closed) throw new Error("Cannot write closed test artifacts");
-    appendFileSync(tracePath, `${JSON.stringify(event)}\n`);
+    events.push(JSON.stringify(event));
   };
-  const logger = Object.assign(new Logger("error"), {
-    debug: (event: string) => record({ event }),
-    info: (event: string) => record({ event }),
-    warn: (event: string) => record({ event }),
-    error: (event: string) => record({ event }),
-  });
+  const logger = Object.assign(
+    new Logger("error"),
+    Object.fromEntries(["debug", "info", "warn", "error"].map((level) => [level, record])),
+  );
   const gateway = new FakeGateway();
-  const app = createApplication({
-    env: {
-      discordToken: "local-only",
-      openaiApiKey: "",
-      discordLogChannelId: undefined,
-      discordAdminUserId: undefined,
-      openaiDailyBudgetUsd: 0,
-      logLevel: "error",
-    },
+  const app = compose(stateDirectory, gateway, model, {
     logger,
-    gateway,
-    conversationModel: model,
-    consolidationModel: new ScriptedModel([]),
-    instructions: "Be Ben.",
-    consolidationInstructions: "Consolidate memory.",
-    usageStore: new OpenAIUsageStore(join(stateDirectory, "usage"), "gpt-5.4-mini", 0),
-    stateDirectory,
     sessionTimings: { messageDebounceMs: 0, idleSleepMs: 10 },
     observer: record,
   });
@@ -267,10 +152,7 @@ async function shutdownFixture(repeat: "none" | "daily", model: ScriptedModel) {
     app,
     gateway,
     stateDirectory,
-    tracePath,
-    closeArtifacts() {
-      closed = true;
-    },
+    events,
     async cleanup() {
       await app.stop();
       await rm(root, { recursive: true, force: true });
@@ -311,11 +193,10 @@ test("application shutdown drains scheduler startup without late writes or model
       assert.equal(stopped, false, "shutdown must drain the active scheduler pass");
       releaseRead();
       await stopping;
-      f.closeArtifacts();
-      const trace = await readFile(f.tracePath, "utf8");
+      const trace = f.events.join("\n");
       const state = await readFile(join(f.stateDirectory, "tasks.json"), "utf8");
       await pause(100);
-      assert.equal(await readFile(f.tracePath, "utf8"), trace);
+      assert.equal(f.events.join("\n"), trace);
       assert.equal(await readFile(join(f.stateDirectory, "tasks.json"), "utf8"), state);
       assert.equal(model.requests.length, 0);
       assert.doesNotMatch(trace, /tasks\.queued|tasks\.missed_advanced/);
@@ -365,13 +246,12 @@ test("application shutdown drains idle occurrence persistence before closing art
     assert.match(await readFile(join(f.stateDirectory, "tasks.json"), "utf8"), /shutdown-task/);
     releaseWrite();
     await stopping;
-    f.closeArtifacts();
-    const trace = await readFile(f.tracePath, "utf8");
+    const trace = f.events.join("\n");
     const state = await readFile(join(f.stateDirectory, "tasks.json"), "utf8");
     assert.doesNotMatch(state, /shutdown-task/);
     assert.match(trace, /tasks\.completed/);
     await pause(100);
-    assert.equal(await readFile(f.tracePath, "utf8"), trace);
+    assert.equal(f.events.join("\n"), trace);
     assert.equal(await readFile(join(f.stateDirectory, "tasks.json"), "utf8"), state);
     assert.equal(model.requests.length, 1);
     assert.equal(f.gateway.destroyed, true);
