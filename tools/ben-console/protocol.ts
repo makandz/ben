@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const inputSchema = z
+const input = z
   .object({
     user: z.string().optional(),
     channel: z.string().optional(),
@@ -8,12 +8,7 @@ export const inputSchema = z
     replyTo: z.string().optional(),
   })
   .strict();
-export const startSchema = z.object({
-  prompts: z
-    .object({ base: z.string().optional(), messaging: z.string().optional() })
-    .strict()
-    .optional(),
-  taskScheduler: z.boolean().optional(),
+const start = z.object({
   users: z.array(z.string().min(1)).min(1).optional(),
   channels: z.array(z.string().min(1)).min(1).optional(),
   dailyBudgetUsd: z.number().nonnegative().optional(),
@@ -42,10 +37,10 @@ export const startSchema = z.object({
     .optional(),
 });
 const command = z.discriminatedUnion("op", [
-  startSchema.extend({ op: z.literal("start") }),
+  start.extend({ op: z.literal("start") }),
   z.object({ op: z.literal("reset") }),
-  inputSchema.extend({ op: z.literal("message") }),
-  z.object({ op: z.literal("batch"), messages: z.array(inputSchema).min(1).max(100) }),
+  input.extend({ op: z.literal("message") }),
+  z.object({ op: z.literal("batch"), messages: z.array(input).min(1).max(100) }),
   z.object({
     op: z.literal("typing"),
     user: z.string().optional(),
