@@ -66,10 +66,12 @@ export async function sendToolStatus(
   text: string,
 ): Promise<void> {
   if (channelId === undefined) {
-    logger.warn(logEvent, { error: "Missing channel ID" });
+    logger.warn(logEvent, { error: "Missing channel ID" }, "Couldn’t send tool status");
     return;
   }
   await gateway
     .sendMessage(channelId, escapeBroadcastMentions(text), { allowUserMentions: false })
-    .catch((error: unknown) => logger.warn(logEvent, { error: String(error) }));
+    .catch((error: unknown) =>
+      logger.warn(logEvent, { channelId, error }, `Couldn’t send tool status to ${channelId}`),
+    );
 }

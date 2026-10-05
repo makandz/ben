@@ -17,7 +17,7 @@ export class DiscordTransport implements ChatTransport {
    * @param users - Shared verified user mention directory.
    * @param channels - Shared verified channel mention directory.
    * @param logChannelId - Optional Discord destination for operational status.
-   * @param logger - Logger used when optional status delivery is unavailable.
+   * @param logger - Activity logger for confirmed delivery and skipped optional status.
    * @param onMessageSent - Optional callback that records successful conversational delivery.
    */
   constructor(
@@ -25,7 +25,7 @@ export class DiscordTransport implements ChatTransport {
     private readonly users: UserMentionDirectory,
     private readonly channels: ChannelMentionDirectory,
     private readonly logChannelId: string | undefined,
-    private readonly logger: Pick<Logger, "debug">,
+    private readonly logger: Pick<Logger, "debug" | "info">,
     private readonly onMessageSent?: (
       channelId: string,
       text: string,
@@ -59,6 +59,12 @@ export class DiscordTransport implements ChatTransport {
       allowUserMentions: true,
       ...(options.replyTo === undefined ? {} : { replyToMessageId: options.replyTo }),
     });
+    const channelName = this.channels.getName(channelId);
+    this.logger.info(
+      "chat.message_sent",
+      { channelId, channelName, messageId: delivery.id },
+      `Sent message to ${channelName === undefined ? channelId : `#${channelName}`}`,
+    );
     this.onMessageSent?.(channelId, text, delivery);
     return delivery;
   }
@@ -82,7 +88,11 @@ export class DiscordTransport implements ChatTransport {
    */
   async logStatus(message: string, details?: Readonly<Record<string, unknown>>): Promise<void> {
     if (this.logChannelId === undefined) {
-      this.logger.debug("discord.status_skipped", { reason: "missing_channel", ...details });
+      this.logger.debug(
+        "discord.status_skipped",
+        { reason: "missing_channel", ...details },
+        "Skipped Discord status because no log channel is configured",
+      );
       return;
     }
     await this.gateway.sendMessage(this.logChannelId, escapeBroadcastMentions(message), {

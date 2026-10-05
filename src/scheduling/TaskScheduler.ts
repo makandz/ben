@@ -2,6 +2,7 @@ import type { Logger } from "../logger.js";
 import type { AutonomousTask, TaskStore } from "../storage/TaskStore.js";
 import {
   computeNextRunAt,
+  formatBotTime,
   SCHEDULE_CHECK_INTERVAL_MS,
   SCHEDULE_TIME_ZONE,
 } from "./scheduleTime.js";
@@ -65,7 +66,11 @@ export class TaskScheduler {
     if (this.timer !== undefined) return;
     this.startedAt = this.now();
     this.timer = setInterval(() => void this.runDueTasks("interval"), this.intervalMs);
-    this.logger.info("tasks.scheduler_started", { intervalMs: this.intervalMs });
+    this.logger.info(
+      "tasks.scheduler_started",
+      { intervalMs: this.intervalMs },
+      "Started task scheduler",
+    );
     await this.runDueTasks("startup");
   }
 
@@ -78,7 +83,11 @@ export class TaskScheduler {
   /** Runs one non-overlapping completion retry and due-task pass. */
   private async runDueTasks(reason: SchedulerReason): Promise<void> {
     if (this.running) {
-      this.logger.debug("tasks.skipped_running", { reason });
+      this.logger.debug(
+        "tasks.skipped_running",
+        { reason },
+        "Skipped task check because another pass is running",
+      );
       return;
     }
     this.running = true;
@@ -96,7 +105,7 @@ export class TaskScheduler {
         }
       }
     } catch (error) {
-      this.logger.warn("tasks.tick_failed", { reason, error: String(error) });
+      this.logger.warn("tasks.tick_failed", { reason, error }, "Couldn’t check due tasks");
     } finally {
       this.running = false;
     }
@@ -128,15 +137,26 @@ export class TaskScheduler {
         now,
       );
       const result = await this.store.advanceRecurring(task.id, task.version, nextRunAt, now);
-      this.logger.info(result.advanced ? "tasks.missed_advanced" : "tasks.missed_already_handled", {
-        id: task.id,
-        dueAt: task.nextRunAt,
-        nextRunAt: nextRunAt.toISOString(),
-      });
+      this.logger[result.advanced ? "info" : "debug"](
+        result.advanced ? "tasks.missed_advanced" : "tasks.missed_already_handled",
+        {
+          id: task.id,
+          dueAt: task.nextRunAt,
+          nextRunAt: nextRunAt.toISOString(),
+          taskName: task.name,
+        },
+        result.advanced
+          ? `Skipped missed occurrence of “${task.name}”; next run at ${formatBotTime(nextRunAt, this.timeZone)}`
+          : `Missed occurrence of “${task.name}” was already handled`,
+      );
       this.pendingStartupAdvances.delete(task.id);
       this.claimed.delete(task.id);
     } catch (error) {
-      this.logger.warn("tasks.missed_advance_failed", { id: task.id, error: String(error) });
+      this.logger.warn(
+        "tasks.missed_advance_failed",
+        { id: task.id, taskName: task.name, error },
+        `Couldn’t advance missed task “${task.name}”`,
+      );
     }
   }
 
@@ -148,14 +168,24 @@ export class TaskScheduler {
         this.pendingCompletions.set(task.id, task);
         await this.tryComplete(task);
       });
-      this.logger.info("tasks.queued", {
-        id: task.id,
-        channelId: task.destination.channelId,
-        reason,
-      });
+      this.logger.info(
+        "tasks.queued",
+        {
+          id: task.id,
+          channelId: task.destination.channelId,
+          channelName: task.destination.channelName,
+          taskName: task.name,
+          reason,
+        },
+        `Queued “${task.name}” for #${task.destination.channelName}`,
+      );
     } catch (error) {
       this.claimed.delete(task.id);
-      this.logger.warn("tasks.enqueue_failed", { id: task.id, reason, error: String(error) });
+      this.logger.warn(
+        "tasks.enqueue_failed",
+        { id: task.id, taskName: task.name, reason, error },
+        `Couldn’t queue task “${task.name}”`,
+      );
     }
   }
 
@@ -179,18 +209,26 @@ export class TaskScheduler {
         nextRunAt,
         now,
       );
-      this.logger.info(
+      this.logger[result.outcome === "unchanged" ? "debug" : "info"](
         result.outcome === "unchanged" ? "tasks.completion_already_handled" : "tasks.completed",
         {
           id: task.id,
+          taskName: task.name,
           outcome: result.outcome,
           ...(nextRunAt === undefined ? {} : { nextRunAt: nextRunAt.toISOString() }),
         },
+        result.outcome === "unchanged"
+          ? `Completion of “${task.name}” was already handled`
+          : `Completed “${task.name}”${nextRunAt === undefined ? "" : `; next run at ${formatBotTime(nextRunAt, this.timeZone)}`}`,
       );
       this.pendingCompletions.delete(task.id);
       this.claimed.delete(task.id);
     } catch (error) {
-      this.logger.warn("tasks.completion_failed", { id: task.id, error: String(error) });
+      this.logger.warn(
+        "tasks.completion_failed",
+        { id: task.id, taskName: task.name, error },
+        `Couldn’t save completion of “${task.name}”`,
+      );
     }
   }
 

@@ -19,6 +19,7 @@ import type {
   DiscordUser,
 } from "../DiscordGateway.js";
 import { DiscordPresence } from "../DiscordPresence.js";
+import type { LogData } from "../../logger.js";
 import { DiscordTransport } from "../DiscordTransport.js";
 
 const bot: DiscordUser = { id: "999", username: "ben", bot: true };
@@ -28,7 +29,7 @@ const general: DiscordChannel = { id: "channel-1", name: "general", guildId: "gu
 test("adapter normalizes human messages, detects pings, and ignores bots", () => {
   const gateway = new FakeDiscordGateway();
   const messages: Array<{ message: HumanMessage; pinged: boolean }> = [];
-  const typings: string[][] = [];
+  const typings: Array<Array<string | undefined>> = [];
   const ready: string[] = [];
   const adapter = new DiscordAdapter(
     gateway,
@@ -79,7 +80,7 @@ test("adapter normalizes human messages, detects pings, and ignores bots", () =>
       pinged: true,
     },
   ]);
-  assert.deepEqual(typings, [["channel-1", "user-1", "Makan"]]);
+  assert.deepEqual(typings, [["channel-1", "user-1", "Makan", "general"]]);
   void adapter;
 });
 
@@ -147,7 +148,7 @@ test("transport resolves unique names and sends only safe mentions", async () =>
     new UserMentionDirectory(),
     new ChannelMentionDirectory(),
     "log-channel",
-    { debug() {} },
+    { debug() {}, info() {} },
     (channelId, text, delivery) => recorded.push({ channelId, text, delivery }),
   );
 
@@ -199,7 +200,7 @@ test("transport does not guess ambiguous users or channels", async () => {
     new UserMentionDirectory(),
     new ChannelMentionDirectory(),
     undefined,
-    { debug() {} },
+    { debug() {}, info() {} },
   );
 
   await transport.sendMessage("channel-1", "@sam in #plans");
@@ -369,3 +370,41 @@ class FakeDiscordGateway implements DiscordGateway {
     this.handlers?.error(error);
   }
 }
+
+test("transport logs each confirmed message with cached channel context and no content", async () => {
+  const gateway = new FakeDiscordGateway();
+  gateway.channels = [general];
+  const events: Array<{ event: string; data?: LogData; message?: string }> = [];
+  const transport = new DiscordTransport(
+    gateway,
+    new UserMentionDirectory(),
+    new ChannelMentionDirectory(),
+    undefined,
+    {
+      debug() {},
+      info(event, data, message) {
+        events.push({
+          event,
+          ...(data === undefined ? {} : { data }),
+          ...(message === undefined ? {} : { message }),
+        });
+      },
+    },
+  );
+  await transport.sendMessage(general.id, "private message content");
+  assert.deepEqual(events, [
+    {
+      event: "chat.message_sent",
+      data: { channelId: general.id, channelName: "general", messageId: "sent-1" },
+      message: "Sent message to #general",
+    },
+  ]);
+  const failure = new Error("send failed");
+  gateway.sendMessage = async () => {
+    throw failure;
+  };
+  await assert.rejects(transport.sendMessage(general.id, "second message"), failure);
+  assert.equal(events.length, 1);
+  await assert.rejects(transport.sendMessage("unknown", "third message"), /not found/);
+  assert.equal(events.length, 1);
+});

@@ -24,20 +24,32 @@ export class MemoryConsolidationStateStore {
       const parsed = await readJsonFile(this.filePath);
       if (parsed === undefined) return undefined;
       if (!isRecord(parsed) || typeof parsed.nextRunAt !== "string") {
-        this.logger.warn("memory_consolidation.state_invalid", { path: this.filePath });
+        this.logger.warn(
+          "memory_consolidation.state_invalid",
+          { path: this.filePath },
+          "Ignored invalid consolidation state",
+        );
         return undefined;
       }
       const nextRunAt = new Date(parsed.nextRunAt);
       if (Number.isNaN(nextRunAt.getTime())) {
-        this.logger.warn("memory_consolidation.state_invalid", { path: this.filePath });
+        this.logger.warn(
+          "memory_consolidation.state_invalid",
+          { path: this.filePath },
+          "Ignored invalid consolidation state",
+        );
         return undefined;
       }
       return nextRunAt;
     } catch (error) {
-      this.logger.warn("memory_consolidation.state_read_failed", {
-        path: this.filePath,
-        error: String(error),
-      });
+      this.logger.warn(
+        "memory_consolidation.state_read_failed",
+        {
+          path: this.filePath,
+          error,
+        },
+        "Couldn’t read consolidation state",
+      );
       return undefined;
     }
   }

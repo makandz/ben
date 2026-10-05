@@ -77,10 +77,14 @@ export class MemoryConsolidationScheduler {
     this.timer = setInterval(() => {
       void this.runDue("interval");
     }, this.checkIntervalMs);
-    this.logger.info("memory_consolidation.scheduler_started", {
-      checkIntervalMs: this.checkIntervalMs,
-      consolidationIntervalMs: this.consolidationIntervalMs,
-    });
+    this.logger.info(
+      "memory_consolidation.scheduler_started",
+      {
+        checkIntervalMs: this.checkIntervalMs,
+        consolidationIntervalMs: this.consolidationIntervalMs,
+      },
+      "Started memory consolidation scheduler",
+    );
     await this.runDue("startup");
   }
 
@@ -113,7 +117,11 @@ export class MemoryConsolidationScheduler {
   /** Performs one non-overlapping due check. */
   private async runDue(reason: "startup" | "interval"): Promise<void> {
     if (this.running) {
-      this.logger.debug("memory_consolidation.skipped_running", { reason });
+      this.logger.debug(
+        "memory_consolidation.skipped_running",
+        { reason },
+        "Skipped consolidation because another pass is running",
+      );
       return;
     }
     this.running = true;
@@ -128,17 +136,29 @@ export class MemoryConsolidationScheduler {
 
       if (!(await this.consolidator.hasPendingMemory())) {
         await this.scheduleNext(now);
-        this.logger.info("memory_consolidation.skipped_empty", { reason });
+        this.logger.debug(
+          "memory_consolidation.skipped_empty",
+          { reason },
+          "Skipped consolidation because there is no new memory",
+        );
         return;
       }
       if (!this.lifecycle.beginDreaming()) {
-        this.logger.debug("memory_consolidation.deferred_active", { reason });
+        this.logger.debug(
+          "memory_consolidation.deferred_active",
+          { reason },
+          "Deferred consolidation until the conversation sleeps",
+        );
         return;
       }
       await this.performConsolidation(this.scheduledReporter, now);
-      this.logger.info("memory_consolidation.consolidated", { reason });
+      this.logger.info("memory_consolidation.consolidated", { reason }, "Consolidated memories");
     } catch (error) {
-      this.logger.warn("memory_consolidation.failed", { reason, error: String(error) });
+      this.logger.warn(
+        "memory_consolidation.failed",
+        { reason, error },
+        "Couldn’t consolidate memories",
+      );
     } finally {
       this.running = false;
     }

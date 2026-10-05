@@ -41,6 +41,8 @@ Enable **Message Content Intent** and **Server Members Intent** for the bot in t
 pnpm dev
 ```
 
+Development logs show a readable activity feed with cached channel and task names. `pnpm start` writes JSON with stable event names, structured fields, and complete errors. Routine development logs stay on one line; set `LOG_LEVEL=debug` to include error stacks. Terminal colors follow TTY support and `NO_COLOR`.
+
 ## Configuration
 
 | Variable                  | Default | Purpose                                                               |
@@ -48,7 +50,7 @@ pnpm dev
 | `DISCORD_LOG_CHANNEL_ID`  | unset   | Sets Ben's own task channel and receives operational and memory logs. |
 | `DISCORD_ADMIN_USER_ID`   | unset   | Allows that Discord user to run `/consolidate`.                       |
 | `OPENAI_DAILY_BUDGET_USD` | `0`     | Stops model calls at a daily cost limit. `0` disables it.             |
-| `LOG_LEVEL`               | `info`  | Sets the console log level.                                           |
+| `LOG_LEVEL`               | `info`  | Sets the log threshold; `debug` includes development error stacks.    |
 
 Tasks use the `America/Toronto` timezone. Runtime state is stored under the gitignored `logs/` directory. Ben checks for memory consolidation every 24 hours, skips the model call when there is no short-term context, and stores the resulting long-term memory as plain text.
 

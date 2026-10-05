@@ -27,16 +27,24 @@ export class CustomStatusStore {
         const parsed = await readJsonFile(this.filePath);
         if (parsed === undefined) return undefined;
         if (!isRecord(parsed) || (parsed.status !== null && typeof parsed.status !== "string")) {
-          this.logger.warn("custom_status.invalid", { path: this.filePath });
+          this.logger.warn(
+            "custom_status.invalid",
+            { path: this.filePath },
+            "Ignored invalid custom status",
+          );
           return undefined;
         }
         const status = parsed.status?.trim();
         return status === undefined || status.length === 0 ? undefined : status;
       } catch (error) {
-        this.logger.warn("custom_status.read_failed", {
-          path: this.filePath,
-          error: String(error),
-        });
+        this.logger.warn(
+          "custom_status.read_failed",
+          {
+            path: this.filePath,
+            error,
+          },
+          "Couldn’t read custom status",
+        );
         return undefined;
       }
     });
